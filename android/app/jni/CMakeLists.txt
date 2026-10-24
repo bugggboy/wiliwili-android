@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.6)
 # wiliwili Android 壳工程
 #
 # 本文件只是把仓库根目录的 wiliwili 工程拉进 Gradle 的 externalNativeBuild：
-#   android/app/jni  →  上溯四级即 wiliwili 源码根
+#   android/app/jni  →  上溯三级即 wiliwili 源码根
 # borealis 的 toolchain.cmake 在 PLATFORM_ANDROID 下会：
 #   - 打开 USE_SDL2 / USE_GLES2 / USE_LIBROMFS
 #   - 由 library/CMakeLists.txt 自己 add_subdirectory(SDL)
@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 3.6)
 # 由 WiliwiliActivity.getLibraries() 加载。
 # ============================================================================
 
-get_filename_component(WILI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
+get_filename_component(WILI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 message(STATUS "wiliwili source root: ${WILI_ROOT}")
 
 set(BUILD_SHARED_LIBS ON CACHE BOOL "")
