@@ -153,8 +153,14 @@ jobs:
             copytolibs() {
               for so in "dl/x-$abi/lib/$abi"/*.so; do
                 n=$(basename "$so")
-                # 排除 mpv-android 自带的 libc++（与我们 NDK 22 编的版本不同，混用会崩）
-                [ "$n" = "libc++_shared.so" ] && continue
+                # libc++_shared.so 不能直接进 jniLibs（会和 CMake 从 NDK 拷出来的那份撞路径），
+                # 先单独收起来，交给后面「统一 libc++ 运行时」那步换进 NDK。
+                if [ "$n" = "libc++_shared.so" ]; then
+                  mkdir -p "dl/cxx/$abi"
+                  cp "$so" "dl/cxx/$abi/libc++_shared.so"
+                  echo "   libc++_shared.so 已暂存 ($(stat -c%s "$so") 字节)"
+                  continue
+                fi
                 cp "$so" "android/app/libs/$abi/$n"
               done
             }
@@ -189,6 +195,45 @@ jobs:
           PC
           echo "PKG_CONFIG_PATH=$PREFIX" >> "$GITHUB_ENV"
           echo "MPV_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------------
+      # 【关键】libc++ 运行时必须是全包唯一且最新的那一份。
+      #
+      # libmpv.so 是 mpv-android 用 NDK r28 编的，内部用了 libc++ 14+ 才有的
+      # std::to_chars(char*, char*, float)。我们自己的 NDK 22 的 libc++_shared.so
+      # 里没有这个符号，混着用真机直接：
+      #   dlopen failed: cannot locate symbol "_ZNSt6__ndk18to_charsEPcS0_f"
+      #   referenced by .../lib/arm64-v8a/libmpv.so
+      #
+      # 解法：整包只用 mpv-android 自带的 r28 版 libc++_shared.so（min api 21，
+      # 对旧版是超集，向后兼容），把 NDK 里的同名文件覆盖掉 —— 这样「链接用的」
+      # 和「打进 APK 的」是同一个文件，只有一份来源，不会再来一次版本错配。
+      # ---------------------------------------------------------------
+      - name: 统一 libc++ 运行时（mpv-android 的 r28 版覆盖 NDK 22 的）
+        run: |
+          set -e
+          NDK="${ANDROID_NDK_HOME:?}"
+          echo "NDK=$NDK"
+          for abi in arm64-v8a armeabi-v7a; do
+            src="dl/cxx/$abi/libc++_shared.so"
+            if [ ! -f "$src" ]; then echo "::error::缺少 $src"; exit 1; fi
+            echo "==> $abi 源文件 $(stat -c%s "$src") 字节"
+            n=0
+            # NDK 里可能同时存在 sources/cxx-stl/.../libs/<abi>/ 和 sysroot/usr/lib/<triple>/
+            # 两处 libc++_shared.so，链接和打包各取一处，必须都覆盖。
+            while IFS= read -r dst; do
+              sudo cp "$src" "$dst"
+              n=$((n + 1))
+              echo "   → ${dst#"$NDK"/}  $(stat -c%s "$dst") 字节"
+            done < <(find "$NDK" -name libc++_shared.so -path "*$abi*" 2>/dev/null)
+            if [ "$n" -eq 0 ]; then echo "::error::NDK 里没找到 $abi 的 libc++_shared.so"; exit 1; fi
+          done
+          f="$NDK/sources/cxx-stl/llvm-libc++/libs/arm64-v8a/libc++_shared.so"
+          if strings "$f" | grep -q '_ZNSt6__ndk18to_charsEPcS0_f'; then
+            echo "✅ to_chars(char*,char*,float) 已就位"
+          else
+            echo "::error::覆盖后仍缺 to_chars，别往下走了"; exit 1
+          fi
 
       - name: 复制 SDL 的 Java 层
         run: |
@@ -227,6 +272,46 @@ jobs:
           done
           echo "===== dex / 资源 ====="
           unzip -l "$APK" | awk '/classes.*\.dex$|resources\.arsc$/{printf "  %-46s %7.1f MB\n", $4, $1/1048576}'
+
+          # ---------------------------------------------------------------
+          # 真机 dlopen 守门员：APK 里每个 .so 的 C++ 未定义符号，必须能在
+          # 同 ABI 的其它 .so 里找到定义。漏一个，安装后就是闪退。
+          # 只查 _Z*（C++ mangled），系统 libc/libm 的符号不参与，避免误报。
+          # ---------------------------------------------------------------
+          echo "===== C++ 符号完整性（真机 dlopen 守门员）====="
+          rm -rf /tmp/apkx && mkdir -p /tmp/apkx
+          unzip -o -q "$APK" 'lib/*' -d /tmp/apkx
+          bad=0
+          for abi in arm64-v8a armeabi-v7a; do
+            abibad=0
+            cxx="/tmp/apkx/lib/$abi/libc++_shared.so"
+            if [ ! -f "$cxx" ]; then echo "::error::$abi 缺 libc++_shared.so"; exit 1; fi
+            echo "  $abi libc++_shared.so = $(stat -c%s "$cxx") 字节"
+            if strings "$cxx" | grep -q '_ZNSt6__ndk18to_charsEPcS0_f'; then
+              echo "  ✅ to_chars(float) 存在"
+            else
+              echo "::error::$abi 的 libc++_shared.so 没有 to_chars(float)，装上必然 dlopen 失败"; abibad=1
+            fi
+            # 汇总同 ABI 下所有 .so 的已定义符号
+            : > /tmp/def.txt
+            for d in /tmp/apkx/lib/"$abi"/*.so; do
+              readelf -sW --dyn-syms "$d" 2>/dev/null | awk '$7 != "UND" && $4 ~ /FUNC|OBJECT|IFUNC/ {print $8}' >> /tmp/def.txt
+            done
+            sort -u -o /tmp/def.txt /tmp/def.txt
+            for so in /tmp/apkx/lib/"$abi"/*.so; do
+              miss=$(readelf -sW --dyn-syms "$so" 2>/dev/null \
+                     | awk '$7 == "UND" {print $8}' | grep -E '^_Z' | sort -u \
+                     | while read -r s; do grep -qxF "$s" /tmp/def.txt || echo "$s"; done)
+              if [ -n "$miss" ]; then
+                echo "::error::$(basename "$so") 有 $(echo "$miss" | wc -l) 个 C++ 符号在包内无定义："
+                echo "$miss" | head -5 | sed 's/^/     /'
+                abibad=1
+              fi
+            done
+            if [ "$abibad" -eq 0 ]; then echo "  ✅ $abi 全部 .so 的 C++ 符号都能在包内解析"; else bad=1; fi
+          done
+          if [ "$bad" -ne 0 ]; then echo "::error::符号不完整，这个 APK 装上去会闪退"; exit 1; fi
+
           mkdir -p out
           cp "$APK" out/wiliwili-android-debug.apk
           echo "APK_SIZE=$(du -h out/wiliwili-android-debug.apk | cut -f1)" >> "$GITHUB_ENV"
