@@ -20,6 +20,15 @@ public class WiliwiliActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 必须在 super.onCreate() 之前设置：SDLActivity 在 onCreate 里就起原生线程了。
+        // wiliwili 的 ProgramConfig 用 getenv("HOME") 推导配置目录，而 Android 默认不设 HOME，
+        // 不设的话会走到不可访问的路径，一读就 filesystem_error → SIGABRT。
+        try {
+            android.system.Os.setenv("HOME", getFilesDir().getParentFile().getAbsolutePath(), true);
+        } catch (Throwable ignored) {
+            // Os.setenv 在极老系统上可能不可用，退化为默认行为
+        }
+        installCaBundle();
         super.onCreate(savedInstanceState);
 
         // borealis 通过该 Handler 接收亮度调整请求
@@ -27,6 +36,28 @@ public class WiliwiliActivity extends SDLActivity {
 
         // 全屏沉浸式：隐藏状态栏与导航栏
         hideSystemUi();
+    }
+
+    /**
+     * Android 没有 OpenSSL 默认查找的 CA bundle，各 ROM 的系统证书集也不全（有的还带代理软件
+     * 自己的根证书），导致 curl 报 "unable to get local issuer certificate"。
+     * 这里随包带一份完整的 Mozilla 根证书集，拷到私有目录后通过环境变量交给 curl。
+     */
+    private void installCaBundle() {
+        try {
+            java.io.File target = new java.io.File(getFilesDir(), "cacert.pem");
+            if (!target.exists() || target.length() < 1024) {
+                java.io.InputStream in = getAssets().open("cacert.pem");
+                java.io.FileOutputStream out = new java.io.FileOutputStream(target);
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.close();
+                in.close();
+            }
+            android.system.Os.setenv("WILIWILI_CA_BUNDLE", target.getAbsolutePath(), true);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override

@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <cstdlib>
+
 #include <nlohmann/json.hpp>
 #include <cpr/cpr.h>
 
@@ -80,6 +82,23 @@ public:
 
     static std::string getEncodedCookie(const cpr::Cookies& cookies);
 
+    // Android 上没有 OpenSSL 默认查找的 CA bundle（/etc/ssl/certs/... 都不存在），
+    // 但系统证书目录 /system/etc/security/cacerts 里的文件是 OpenSSL 哈希命名，
+    // 可以直接当 capath 用。不设的话所有 HTTPS 都会卡在证书校验，
+    // 表现出来就是首页 "WBI 签名获取失败"。
+    static void applyPlatformSsl(cpr::Session& session) {
+#if defined(__ANDROID__)
+        // 优先用随包携带的完整 Mozilla 根证书集（Java 层启动时拷到私有目录并设了这个环境变量），
+        // 拿不到就退回系统证书目录
+        const char* bundle = std::getenv("WILIWILI_CA_BUNDLE");
+        if (bundle != nullptr && bundle[0] != '\0') {
+            session.SetOption(cpr::Ssl(cpr::ssl::CaInfo{bundle}));
+        } else {
+            session.SetOption(cpr::Ssl(cpr::ssl::CaPath{"/system/etc/security/cacerts"}));
+        }
+#endif
+    }
+
     static std::shared_ptr<cpr::Session> createSession() {
         auto session = std::make_shared<cpr::Session>();
         CURL* curl = session->GetCurlHolder()->handle;
@@ -90,6 +109,7 @@ public:
         session->SetHeader(bilibili::HTTP::HEADERS);
         session->SetProxies(bilibili::HTTP::PROXIES);
         session->SetVerifySsl(bilibili::HTTP::VERIFY);
+        applyPlatformSsl(*session);
         return session;
     }
 

@@ -308,6 +308,14 @@ void MPVCore::init() {
     mpvSetOptionString(mpv, "config-dir", confDir.c_str());
     mpvSetOptionString(mpv, "gpu-shader-cache-dir", fmt::format("{}/cache", confDir).c_str());
     mpvSetOptionString(mpv, "ytdl", "no");
+#if defined(__ANDROID__)
+    // Android 没有系统 CA bundle，mpv 走 HTTPS 拉流会直接 "loading failed"。
+    // Java 层启动时把随包的 Mozilla 根证书拷到私有目录并设了这个环境变量。
+    if (const char* caBundle = std::getenv("WILIWILI_CA_BUNDLE")) {
+        mpvSetOptionString(mpv, "tls-ca-file", caBundle);
+        brls::Logger::info("mpv tls-ca-file: {}", caBundle);
+    }
+#endif
     mpvSetOptionString(mpv, "audio-channels", "stereo");
     mpvSetOptionString(mpv, "idle", "yes");
     mpvSetOptionString(mpv, "loop-file", "no");

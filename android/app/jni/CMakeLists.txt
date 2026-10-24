@@ -19,15 +19,19 @@ message(STATUS "wiliwili source root: ${WILI_ROOT}")
 set(BUILD_SHARED_LIBS ON CACHE BOOL "")
 set(PLATFORM_ANDROID ON CACHE BOOL "")
 
-# borealis 在 Android 上强制 USE_LIBROMFS，需要一个在 macOS/Linux 上先编好的资源生成器
-set(LIBROMFS_PREBUILT_GENERATOR
-    "${WILI_ROOT}/library/borealis/libromfs-generator"
-    CACHE STRING "")
-if (NOT EXISTS "${LIBROMFS_PREBUILT_GENERATOR}")
+# borealis 在 Android 上强制 USE_LIBROMFS，需要一个先在宿主机上编好的资源生成器。
+# Windows 上产物是 libromfs-generator.exe，Linux/macOS 上没有后缀，两处都要认。
+set(_romfs_gen_base "${WILI_ROOT}/library/borealis/libromfs-generator")
+if (EXISTS "${_romfs_gen_base}.exe")
+    set(LIBROMFS_PREBUILT_GENERATOR "${_romfs_gen_base}.exe" CACHE STRING "")
+elseif (EXISTS "${_romfs_gen_base}")
+    set(LIBROMFS_PREBUILT_GENERATOR "${_romfs_gen_base}" CACHE STRING "")
+else()
     message(FATAL_ERROR
-        "libromfs-generator 不存在：${LIBROMFS_PREBUILT_GENERATOR}\n"
-        "请先在 library/borealis 下执行 build_libromfs_generator.sh")
+        "libromfs-generator 不存在：${_romfs_gen_base}[.exe]\n"
+        "先在 library/borealis 下执行 build_libromfs_generator.sh（Windows 用 MINGW64 shell）")
 endif()
+message(STATUS "libromfs-generator: ${LIBROMFS_PREBUILT_GENERATOR}")
 
 # mpv：Android 上是用预编译的 libmpv.so（按 ABI 分目录），
 # mpv.pc 里只给 -lmpv，链接目录在这里按 ABI 指定。
@@ -69,7 +73,12 @@ endif()
 set(SDL_SHIM_DIR "${CMAKE_CURRENT_BINARY_DIR}/sdl2_shim")
 file(MAKE_DIRECTORY "${SDL_SHIM_DIR}")
 if (NOT EXISTS "${SDL_SHIM_DIR}/SDL2")
-    file(CREATE_LINK "${SDL_INC}" "${SDL_SHIM_DIR}/SDL2" SYMBOLIC)
+    if (WIN32)
+        # Windows 上创建符号链接需要开发者模式/管理员权限，直接复制目录更稳
+        file(COPY "${SDL_INC}/" DESTINATION "${SDL_SHIM_DIR}/SDL2")
+    else()
+        file(CREATE_LINK "${SDL_INC}" "${SDL_SHIM_DIR}/SDL2" SYMBOLIC)
+    endif()
 endif()
 include_directories("${SDL_SHIM_DIR}")
 message(STATUS "SDL2 头文件映射: ${SDL_SHIM_DIR}/SDL2 -> ${SDL_INC}")

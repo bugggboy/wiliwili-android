@@ -210,6 +210,7 @@ void ImageHelper::requestImage() {
     session.SetTimeout(cpr::Timeout{bilibili::HTTP::TIMEOUT});
     session.SetConnectTimeout(cpr::ConnectTimeout{bilibili::HTTP::CONNECTION_TIMEOUT});
     session.SetVerifySsl(bilibili::HTTP::VERIFY);
+    bilibili::HTTP::applyPlatformSsl(session);   // Android 需要显式给 CA 目录
     session.SetProxies(bilibili::HTTP::PROXIES);
     session.SetUrl(cpr::Url{this->imageUrl});
     session.SetProgressCallback(cpr::ProgressCallback([this](...) -> bool { return !this->isCancel; }));

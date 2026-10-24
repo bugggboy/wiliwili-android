@@ -15,6 +15,9 @@
     <!-- 网络：B 站接口、视频流、直播 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- borealis 的 PlatformUtils 会读 WiFi 开关/信号强度（SDL 平台信息），
+         没有这条权限会在 SDLThread 里抛 SecurityException 直接 SIGABRT -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- 保持屏幕常亮由 borealis 通过 Handler 控制亮度，不需要额外权限 -->
 

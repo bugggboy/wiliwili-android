@@ -25,6 +25,19 @@ android {
                 arguments "-DANDROID_PLATFORM=android-23",
                           "-DANDROID_STL=c++_shared",
                           "-DCMAKE_WARN_DEPRECATED=FALSE"
+                // Windows 上没有 pkg-config，wiliwili 根 CMakeLists 又要用它找 mpv。
+                // 由本地构建脚本用 -PpkgConfigExe=... 传进来；CI（Linux）不传，行为不变。
+                if (project.hasProperty("pkgConfigExe")) {
+                    arguments += "-DPKG_CONFIG_EXECUTABLE=${project.pkgConfigExe}"
+                }
+                // cpr 用 FetchContent 拉 zlib-ng（git clone）和 curl（github releases），
+                // 本机 git/直连都不通，指向本地已解压的源码；CI 不传，行为不变。
+                if (project.hasProperty("fetchContentDirs")) {
+                    project.property("fetchContentDirs").split(";").each { kv ->
+                        def (k, v) = kv.split("=", 2)
+                        arguments += "-DFETCHCONTENT_SOURCE_DIR_${k.toUpperCase()}=${v}"
+                    }
+                }
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
                 version = '3.22.1'
             }

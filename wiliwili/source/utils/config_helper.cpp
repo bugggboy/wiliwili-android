@@ -1123,6 +1123,11 @@ std::string ProgramConfig::getHomePath() {
     return "/";
 #elif defined(_WIN32)
     return std::string(getenv("HOMEPATH"));
+#elif defined(__ANDROID__)
+    // Android 默认不设 HOME（由 WiliwiliActivity 通过 Os.setenv 指到应用私有目录）。
+    // 万一没设，退回应用私有目录的常见位置，绝不能落到 std::string(nullptr)。
+    const char* home = getenv("HOME");
+    return home ? std::string(home) : std::string("/data/local/tmp");
 #else
     return std::string(getenv("HOME"));
 #endif
@@ -1131,6 +1136,10 @@ std::string ProgramConfig::getHomePath() {
 std::string ProgramConfig::getConfigDir() {
 #ifdef __SWITCH__
     return "/config/wiliwili";
+#elif defined(__ANDROID__)
+    // Android 的 cwd 是 "/"，Debug 构建会拼出 //config/wiliwili 这种不可访问路径，
+    // 一 stat 就抛 filesystem_error 直接 abort。这里固定用应用私有目录。
+    return getHomePath() + "/config/wiliwili";
 #elif defined(PS4)
     return "/data/wiliwili";
 #elif defined(__PSV__)
@@ -1208,9 +1217,14 @@ void ProgramConfig::exit(char* argv[]) {
 void ProgramConfig::loadCustomThemes() {
     customThemes.clear();
     std::string directoryPath = getConfigDir() + "/theme";
-    if (!cpr::fs::exists(directoryPath)) return;
+    // 用 error_code 版本：目录不可访问（权限/路径非法）时返回而不是抛异常，
+    // 否则未捕获的 filesystem_error 会直接 SIGABRT（Android 上踩过）
+    std::error_code ec;
+    if (!cpr::fs::exists(directoryPath, ec) || ec) return;
+    if (!cpr::fs::is_directory(directoryPath, ec) || ec) return;
 
-    for (const auto& entry : cpr::fs::directory_iterator(getConfigDir() + "/theme")) {
+    for (const auto& entry : cpr::fs::directory_iterator(directoryPath, ec)) {
+        if (ec) break;
         if (!cpr::fs::is_directory(entry)) continue;
         std::string subDirectory = entry.path().string();
         std::string jsonFilePath = subDirectory + "/resources_meta.json";
