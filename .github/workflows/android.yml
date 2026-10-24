@@ -100,6 +100,12 @@ jobs:
           set -e
           export WILI_DEPS="$PWD/.deps"
           mkdir -p "$WILI_DEPS"
+          # OpenSSL 1.1.1 的 15-android.conf 认 ANDROID_NDK_ROOT（不是 ANDROID_NDK_HOME），
+          # 并且要在 PATH 里找到 <triple><api>-clang，否则会退回找 gcc 然后报
+          # "no NDK aarch64-linux-android-gcc on $PATH"
+          export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}}"
+          export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          ls "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" | grep -m3 "android23-clang" || true
           if [ -f "$WILI_DEPS/openssl/arm64-v8a/lib/libssl.a" ] && \
              [ -f "$WILI_DEPS/openssl/armeabi-v7a/lib/libssl.a" ]; then
             echo "OpenSSL 已缓存，跳过"
