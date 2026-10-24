@@ -24,6 +24,7 @@ env:
   CMAKE_VERSION: "3.22.1"
   MPV_ANDROID_TAG: "2026-09-17"
   MPV_HEADER_TAG: "v0.40.0"
+  OPENSSL_VERSION: "1.1.1w"
 
 jobs:
   build:
@@ -85,10 +86,47 @@ jobs:
       # 里取出已编译好的 libmpv.so，头文件单独从 mpv 源码取。
       # 好处：不用在 CI 里花 40 分钟交叉编译 FFmpeg + mpv。
       # ---------------------------------------------------------------
+      - name: 缓存依赖（OpenSSL / libmpv）
+        uses: actions/cache@v4
+        with:
+          path: |
+            .deps/openssl
+            .deps/mpv
+          key: android-deps-${{ env.NDK_VERSION }}-${{ env.MPV_ANDROID_TAG }}-${{ env.OPENSSL_VERSION }}
+
+      # cpr 需要 SSL 后端，Android NDK 不提供 OpenSSL，这里用 NDK 自己编两份静态库
+      - name: 编译 OpenSSL（arm64-v8a / armeabi-v7a）
+        run: |
+          set -e
+          export WILI_DEPS="$PWD/.deps"
+          mkdir -p "$WILI_DEPS"
+          if [ -f "$WILI_DEPS/openssl/arm64-v8a/lib/libssl.a" ] && \
+             [ -f "$WILI_DEPS/openssl/armeabi-v7a/lib/libssl.a" ]; then
+            echo "OpenSSL 已缓存，跳过"
+          else
+            curl -sSL --retry 3 -o /tmp/openssl.tar.gz \
+              "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
+            for pair in "arm64-v8a:android-arm64" "armeabi-v7a:android-arm"; do
+              abi="${pair%%:*}"; tgt="${pair##*:}"
+              dir="/tmp/ossl-$abi"
+              rm -rf "$dir"; mkdir -p "$dir"
+              tar xzf /tmp/openssl.tar.gz -C "$dir" --strip-components=1
+              echo "==> OpenSSL $abi ($tgt)"
+              ( cd "$dir"
+                ./Configure "$tgt" -D__ANDROID_API__=23 \
+                  --prefix="$WILI_DEPS/openssl/$abi" \
+                  no-shared no-tests no-asm >/dev/null
+                make -j"$(nproc)" >/dev/null
+                make install_sw >/dev/null )
+            done
+          fi
+          ls -la "$WILI_DEPS/openssl"/*/lib/libssl.a
+          echo "WILI_DEPS=$WILI_DEPS" >> "$GITHUB_ENV"
+
       - name: 准备 libmpv（arm64-v8a / armeabi-v7a）
         run: |
           set -e
-          PREFIX="$PWD/.deps/mpv"
+          PREFIX="${WILI_DEPS:-$PWD/.deps}/mpv"
           mkdir -p "$PREFIX/include/mpv" "$PREFIX/lib" android/app/libs dl
 
           for pair in "arm64-v8a:app-default-arm64-v8a-release.apk" "armeabi-v7a:app-default-armeabi-v7a-release.apk"; do
