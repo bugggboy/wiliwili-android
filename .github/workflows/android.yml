@@ -196,7 +196,12 @@ jobs:
             exit 1
           fi
           ls -lh "$APK"
-          unzip -l "$APK" | grep -E "lib/.*\.so" | head -10
+          echo "===== APK 内所有 .so ====="
+          unzip -l "$APK" | grep -E "lib/.*\.so$" || echo "!! APK 里没有任何 .so"
+          echo "===== .so 统计 ====="
+          unzip -l "$APK" | awk '/lib\/.*\.so$/{n++; s+=$1; printf "  %-46s %7.1f MB\n", $4, $1/1048576} END{printf "  合计 %d 个 / %.1f MB\n", n, s/1048576}'
+          echo "===== dex / 资源 ====="
+          unzip -l "$APK" | awk '/classes.*\.dex$|resources\.arsc$/{printf "  %-46s %7.1f MB\n", $4, $1/1048576}'
           mkdir -p out
           cp "$APK" out/wiliwili-android-debug.apk
           echo "APK_SIZE=$(du -h out/wiliwili-android-debug.apk | cut -f1)" >> "$GITHUB_ENV"
