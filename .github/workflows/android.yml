@@ -137,6 +137,7 @@ jobs:
 
       - name: 配置 + 编译（arm64-v8a / armeabi-v7a）
         run: |
+          set -o pipefail          # 否则 tee 会吞掉 gradle 的失败退出码
           cd android
           gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
 
