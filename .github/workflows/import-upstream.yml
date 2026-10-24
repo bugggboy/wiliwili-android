@@ -22,7 +22,9 @@ jobs:
         run: |
           set -e
           cd src
-          rm -rf .git
+          # GITHUB_TOKEN 没有 workflows 权限，无法推送 .github/workflows；
+          # 上游的 Switch/PSV/PC CI 与 issue 模板对本项目无意义，直接排除
+          rm -rf .git .github/workflows .github/ISSUE_TEMPLATE
           git init -b yoga -q
           git config user.name "bugggboy"
           git config user.email "92500093+bugggboy@users.noreply.github.com"
