@@ -214,26 +214,32 @@ jobs:
           set -e
           NDK="${ANDROID_NDK_HOME:?}"
           echo "NDK=$NDK"
-          for abi in arm64-v8a armeabi-v7a; do
+          # NDK 里 libc++_shared.so 有两份，路径前缀一个是 ABI 名、一个是 triple 名：
+          #   sources/cxx-stl/llvm-libc++/libs/<abi>/               ← 链接时用
+          #   toolchains/llvm/prebuilt/*/sysroot/usr/lib/<triple>/  ← AGP 打包进 APK 时用
+          # 只按 ABI 名匹配过一次，结果 sysroot 那份还是 NDK 22 的旧库，
+          # APK 里 libc++_shared.so 依旧是 991920 字节，符号照样缺。
+          for pair in "arm64-v8a:aarch64-linux-android" "armeabi-v7a:arm-linux-androideabi"; do
+            abi="${pair%%:*}"; triple="${pair##*:}"
             src="dl/cxx/$abi/libc++_shared.so"
             if [ ! -f "$src" ]; then echo "::error::缺少 $src"; exit 1; fi
-            echo "==> $abi 源文件 $(stat -c%s "$src") 字节"
-            n=0
-            # NDK 里可能同时存在 sources/cxx-stl/.../libs/<abi>/ 和 sysroot/usr/lib/<triple>/
-            # 两处 libc++_shared.so，链接和打包各取一处，必须都覆盖。
-            while IFS= read -r dst; do
+            want=$(stat -c%s "$src")
+            echo "==> $abi (triple=$triple) 源文件 $want 字节"
+            hits=$(find "$NDK" -name libc++_shared.so \( -path "*$abi*" -o -path "*$triple*" \) 2>/dev/null | sort -u)
+            n=$(echo "$hits" | grep -c . || true)
+            if [ "$n" -lt 1 ]; then echo "::error::NDK 里没找到 $abi 的 libc++_shared.so"; exit 1; fi
+            [ "$n" -ge 2 ] || echo "::warning::$abi 只匹配到 $n 处，若打包仍用旧库请检查 NDK 布局"
+            echo "$hits" | while IFS= read -r dst; do
+              [ -f "$dst" ] || continue
               sudo cp "$src" "$dst"
-              n=$((n + 1))
-              echo "   → ${dst#"$NDK"/}  $(stat -c%s "$dst") 字节"
-            done < <(find "$NDK" -name libc++_shared.so -path "*$abi*" 2>/dev/null)
-            if [ "$n" -eq 0 ]; then echo "::error::NDK 里没找到 $abi 的 libc++_shared.so"; exit 1; fi
+              got=$(stat -c%s "$dst")
+              echo "   → ${dst#"$NDK"/}  $got 字节"
+              [ "$got" = "$want" ] || { echo "::error::$dst 替换失败"; exit 1; }
+              strings "$dst" | grep -q '_ZNSt6__ndk18to_charsEPcS0_f' \
+                || { echo "::error::$dst 缺 to_chars"; exit 1; }
+            done
+            echo "   ✅ $abi 共 $n 处已替换且都含 to_chars(char*,char*,float)"
           done
-          f="$NDK/sources/cxx-stl/llvm-libc++/libs/arm64-v8a/libc++_shared.so"
-          if strings "$f" | grep -q '_ZNSt6__ndk18to_charsEPcS0_f'; then
-            echo "✅ to_chars(char*,char*,float) 已就位"
-          else
-            echo "::error::覆盖后仍缺 to_chars，别往下走了"; exit 1
-          fi
 
       - name: 复制 SDL 的 Java 层
         run: |
