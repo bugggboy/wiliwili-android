@@ -1,0 +1,153 @@
+name: Android · 构建 APK
+
+on:
+  push:
+    branches: [ yoga ]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+      - "CMakeLists.txt"
+      - "wiliwili/**"
+      - "resources/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+env:
+  # NDK 与 minSdk 强绑定：r22 支持 api16+，r26+ 只支持 api21+ 且低版本会跑不起来
+  NDK_VERSION: "22.1.7171670"
+  CMAKE_VERSION: "3.22.1"
+  MPV_ANDROID_TAG: "2026-09-17"
+  MPV_HEADER_TAG: "v0.40.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装 NDK 与 CMake
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "7.6.4"   # AGP 7.4.2 支持 Gradle 7.5 ~ 8.0
+
+      - name: 构建 host 版 libromfs-generator
+        run: |
+          bash library/borealis/build_libromfs_generator.sh
+          ls -la library/borealis/libromfs-generator
+
+      # ---------------------------------------------------------------
+      # mpv：Android 上没有现成的 CMake 包，从 mpv-android 的 release APK
+      # 里取出已编译好的 libmpv.so，头文件单独从 mpv 源码取。
+      # 好处：不用在 CI 里花 40 分钟交叉编译 FFmpeg + mpv。
+      # ---------------------------------------------------------------
+      - name: 准备 libmpv（arm64-v8a / armeabi-v7a）
+        run: |
+          set -e
+          PREFIX="$PWD/.deps/mpv"
+          mkdir -p "$PREFIX/include/mpv" "$PREFIX/lib" android/app/libs dl
+
+          for pair in "arm64-v8a:app-default-arm64-v8a-release.apk" "armeabi-v7a:app-default-armeabi-v7a-release.apk"; do
+            abi="${pair%%:*}"
+            apk="${pair##*:}"
+            mkdir -p "$PREFIX/lib/$abi" "android/app/libs/$abi"
+            if [ ! -f "dl/$apk" ]; then
+              curl -sSL --retry 3 -o "dl/$apk" \
+                "https://github.com/mpv-android/mpv-android/releases/download/${MPV_ANDROID_TAG}/${apk}"
+            fi
+            unzip -o -j "dl/$apk" "lib/$abi/libmpv.so" -d "$PREFIX/lib/$abi" >/dev/null
+            cp "$PREFIX/lib/$abi/libmpv.so" "android/app/libs/$abi/libmpv.so"
+            echo "$abi: $(du -h "$PREFIX/lib/$abi/libmpv.so" | cut -f1)"
+            # 顺便确认渲染 API 是否存在（wiliwili 依赖 mpv_render_context）
+            if ! strings "$PREFIX/lib/$abi/libmpv.so" | grep -q "mpv_render_context_create"; then
+              echo "::warning::$abi 的 libmpv.so 可能不含 render API"
+            fi
+          done
+
+          for h in client.h render.h render_gl.h stream_cb.h; do
+            curl -sSL --retry 3 -o "$PREFIX/include/mpv/$h" \
+              "https://raw.githubusercontent.com/mpv-player/mpv/${MPV_HEADER_TAG}/include/mpv/$h"
+          done
+          ls -la "$PREFIX/include/mpv"
+
+          cat > "$PREFIX/mpv.pc" <<PC
+          prefix=$PREFIX
+          exec_prefix=\${prefix}
+          libdir=\${prefix}/lib
+          includedir=\${prefix}/include
+
+          Name: mpv
+          Description: mpv media player client library (Android prebuilt)
+          Version: ${MPV_HEADER_TAG#v}
+          Libs: -lmpv
+          Cflags: -I\${includedir}
+          PC
+          echo "PKG_CONFIG_PATH=$PREFIX" >> "$GITHUB_ENV"
+          echo "MPV_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: 复制 SDL 的 Java 层
+        run: |
+          mkdir -p android/app/src/main/java
+          cp -r library/borealis/android-project/app/src/main/java/org android/app/src/main/java/
+          find android/app/src/main/java/org -name "*.java" | wc -l
+
+      - name: 配置 + 编译（arm64-v8a / armeabi-v7a）
+        run: |
+          cd android
+          gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
+
+      - name: 校验产物
+        if: always()
+        run: |
+          APK=$(find android/app/build/outputs/apk -name "*.apk" | head -1)
+          echo "APK=$APK"
+          if [ -z "$APK" ]; then
+            echo "::error::没有产出 APK"
+            grep -nE "error:|FAILED|CMake Error|undefined reference|not found" /tmp/gradle.log | head -25 || true
+            exit 1
+          fi
+          ls -lh "$APK"
+          unzip -l "$APK" | grep -E "lib/.*\.so" | head -10
+          mkdir -p out
+          cp "$APK" out/wiliwili-android-debug.apk
+          echo "APK_SIZE=$(du -h out/wiliwili-android-debug.apk | cut -f1)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wiliwili-android-debug
+          path: out/wiliwili-android-debug.apk
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: 挂到 Release（手机浏览器直链下载）
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f out/wiliwili-android-debug.apk ] || exit 0
+          TAG=android-preview
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "wiliwili for Android (debug build)" \
+                 --notes "wiliwili 的 Android 移植预览版。debug 签名，可直接安装。最低 Android 6.0（API 23）。" \
+                 --latest
+          gh release upload "$TAG" out/wiliwili-android-debug.apk --clobber
