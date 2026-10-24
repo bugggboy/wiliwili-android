@@ -27,11 +27,8 @@ jobs:
           git config user.name "bugggboy"
           git config user.email "92500093+bugggboy@users.noreply.github.com"
           git add -A
-          git commit -q -m "import: 从 xfangfang/wiliwili@yoga 导入源码
-
-Android 移植起点。上游作者：xfangfang (https://github.com/xfangfang)
-上游仓库：https://github.com/xfangfang/wiliwili
-许可证：GPL-3.0"
+          MSG='import: 从 xfangfang/wiliwili@yoga 导入源码（Android 移植起点）'
+          git commit -q -m "$MSG"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push -f origin yoga
           echo "导入完成：$(git rev-parse --short HEAD)，文件数 $(git ls-files | wc -l)"
