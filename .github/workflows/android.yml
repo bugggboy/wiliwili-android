@@ -63,10 +63,22 @@ jobs:
           gradle-version: "7.6.4"     # AGP 7.4.2 支持 Gradle 7.5 ~ 8.0
           validate-wrappers: false    # 仓库里没有 wrapper；子模块里的 gradlew 会被误判
 
+      # 不用 borealis 自带的 build_libromfs_generator.sh：
+      # 它写的是 `cmake -B <build> <src>`，在当前 CMake 下会把 borealis 根目录
+      # 当成源目录（进而 include toolchain.cmake 报 "Please set build target"）。
+      # 这里直接给出等价的、带 -S 的写法。
       - name: 构建 host 版 libromfs-generator
         run: |
-          bash library/borealis/build_libromfs_generator.sh
-          ls -la library/borealis/libromfs-generator
+          set -e
+          cd library/borealis
+          SRC=library/lib/extern/libromfs/generator
+          test -f "$SRC/CMakeLists.txt"
+          cmake -S "$SRC" -B build_libromfs_generator
+          cmake --build build_libromfs_generator -j"$(nproc)"
+          cp build_libromfs_generator/libromfs-generator .
+          rm -rf build_libromfs_generator
+          ls -la libromfs-generator
+          file libromfs-generator | head -1
 
       # ---------------------------------------------------------------
       # mpv：Android 上没有现成的 CMake 包，从 mpv-android 的 release APK
