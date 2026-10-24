@@ -74,4 +74,41 @@ endif()
 include_directories("${SDL_SHIM_DIR}")
 message(STATUS "SDL2 头文件映射: ${SDL_SHIM_DIR}/SDL2 -> ${SDL_INC}")
 
+# ---------------------------------------------------------------
+# SDL
+# borealis 的 PLATFORM_ANDROID 分支只做 find_library(SDL2 NAMES SDL2 SDL2main)，
+# 不做 add_subdirectory；纯源码构建时 find_library 找不到，链接阶段就会退化成
+# 裸库名 `-lSDL2 -lSDL2main`。这里显式构建 SDL，并把它和桩库放进链接搜索路径。
+# ---------------------------------------------------------------
+set(SDL_DIR "${WILI_ROOT}/library/borealis/library/lib/extern/SDL")
+if (NOT EXISTS "${SDL_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "找不到 SDL 源码：${SDL_DIR}")
+endif()
+set(SDL_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/SDL")
+set(SDL_TEST_ENABLED_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+add_subdirectory("${SDL_DIR}" "${SDL_BUILD_DIR}")
+
+# Android 上没有 SDL2main（那是桌面端提供 main() 包装的静态库），
+# 但 borealis 无条件 -lSDL2main，补一个空静态库满足链接。
+if (NOT TARGET SDL2main)
+    set(STUB_DIR "${CMAKE_CURRENT_BINARY_DIR}/sdl2main_stub")
+    file(MAKE_DIRECTORY "${STUB_DIR}")
+    if (NOT EXISTS "${STUB_DIR}/empty.c")
+        file(WRITE "${STUB_DIR}/empty.c" "")
+    endif()
+    add_library(SDL2main STATIC "${STUB_DIR}/empty.c")
+    set_target_properties(SDL2main PROPERTIES
+            OUTPUT_NAME "SDL2main"
+            ARCHIVE_OUTPUT_DIRECTORY "${STUB_DIR}")
+    message(STATUS "SDL2main 桩库: ${STUB_DIR}/libSDL2main.a")
+endif()
+
+link_directories("${SDL_BUILD_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/sdl2main_stub")
+
 add_subdirectory(${WILI_ROOT} wiliwili_root)
+
+# 链接用的是 -lSDL2（字符串，CMake 不知道依赖关系），这里显式补上构建顺序
+if (TARGET SDL2 AND TARGET wiliwili)
+    add_dependencies(wiliwili SDL2)
+endif()
