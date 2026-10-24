@@ -1,401 +1,236 @@
 <p align="center">
-    <img src="resources/svg/cn.xfangfang.wiliwili.svg" alt="logo" height="128" width="128"/>
-</p>
-<p align="center">
-  一个专为手柄用户设计的第三方 <a href="https://www.bilibili.com">B站</a> 客户端
-</p>
-<p align="center">
-<b><a href="#特点">特点</a></b>
-|
-<b><a href="#安装">安装</a></b>
-|
-<b><a href="#文档">文档</a></b>
-|
-<b><a href="#开发">开发</a></b>
+    <img src="resources/svg/cn.xfangfang.wiliwili.svg" alt="logo" height="120" width="120"/>
 </p>
 
-- - -
-
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/xfangfang/wiliwili)](https://github.com/xfangfang/wiliwili/releases)
-![GitHub All Releases](https://img.shields.io/github/downloads/xfangfang/wiliwili/total)
-![GitHub stars](https://img.shields.io/github/stars/xfangfang/wiliwili?style=flat)
-![GitHub forks](https://img.shields.io/github/forks/xfangfang/wiliwili)
-[![Crowdin](https://badges.crowdin.net/wiliwili/localized.svg)](https://crowdin.com/project/wiliwili)
-![NS](https://img.shields.io/badge/-Nintendo%20Switch-e4000f?style=flat&logo=Nintendo%20Switch)
-![PSV](https://img.shields.io/badge/-PSVita-003791?style=flat&logo=PlayStation)
-![PS4](https://img.shields.io/badge/-PS4-003791?style=flat&logo=PlayStation)
-![MS](https://img.shields.io/badge/-Windows%207+-357ec7?style=flat&logo=Windows)
-![mac](https://img.shields.io/badge/-macOS%2010.11+-black?style=flat&logo=Apple)
-![Linux](https://img.shields.io/badge/-Linux-lightgrey?style=flat&logo=Linux&logoColor=white)
-[![fedora](https://img.shields.io/badge/fedora-copr-blue?logo=fedora)](https://copr.fedorainfracloud.org/coprs/mochaa/wiliwili/)
-[![Scoop Version (extras bucket)](https://img.shields.io/scoop/v/wiliwili?bucket=extras)](https://scoop.sh/#/apps?q=wiliwili)
-[![aur](https://img.shields.io/aur/version/wiliwili?color=blue&logo=archlinux)](https://aur.archlinux.org/packages/wiliwili/)
-[![Flathub](https://img.shields.io/flathub/v/cn.xfangfang.wiliwili)](https://flathub.org/apps/cn.xfangfang.wiliwili)
-[![nightly.link](https://img.shields.io/badge/nightly.link-%E6%B5%8B%E8%AF%95%E7%89%88-green)](https://nightly.link/xfangfang/wiliwili/workflows/build.yaml/dev)
-[![layout](https://img.shields.io/badge/wiliwili-自定义布局-yellow)](https://github.com/xfangfang/wiliwili_theme)
-
-<br>
-
-# 特点
-
-wiliwili 拥有非常接近官方PC客户端的B站浏览体验  
-同时支持**触屏**、**鼠标**、**键盘** 与 **手柄**操控  
-无论是电脑还是游戏掌机都能获得全新的使用体验
-
-多语言：简、繁、日、韩、英 ...   
-搜索页：热搜 视频 番剧 影视  
-筛选页：快速找到想看的影视内容  
-动态页：关注的UP主最近视频动态  
-直播页：关注的主播与其他系统推荐  
-播放页：视频 番剧 电影 纪录片 综艺，支持弹幕与评论  
-个人页：扫码登录 历史记录 个人收藏 我的追番 我的追剧  
-主题色：拥有深浅两色主题，跟随系统自动切换
-
-<br>
-
-# 安装
-
-### Nintendo Switch
-
-1. 下载 `wiliwili-NintendoSwitch.zip`：[wiliwili releases](https://github.com/xfangfang/wiliwili/releases)
-2. 将 wiliwili.nro 放置在**内存卡** `switch` 目录下。
-3. 在主页 `按住` R键打开任意游戏进入 hbmenu，在列表中选择 wiliwili 点击打开即可。
-4. [可选] 在应用内安装桌面图标，入口：设置/实用工具/使用教程
-
-<details>
-
-<br>
-
-桌面图标会优先尝试打开 `switch/wiliwili.nro`，如果其不存在，则尝试打开 `switch/wiliwili/wiliwili.nro`，如果这两个路径都不存在，则打开
-hbmenu 自行选择路径。
-
-默认提供的为 OpenGL 版本，最高只能播放 4k@30，你也可以下载到支持原生图形 api
-的 [deko3d 版本](https://nightly.link/xfangfang/wiliwili/workflows/build.yaml/dev)，可以流畅播放 4k@60，不过可能会偶尔崩溃。
-
-</details>
-
-### PSVita
-
-下载 `wiliwili-PSVita.vpk` 安装即可：[wiliwili releases](https://github.com/xfangfang/wiliwili/releases)
-
-开启硬解后可以流畅播放 720P 横屏视频，480P 竖屏视频，部分直播 1080P 原画。
-
-### PS4
-
-下载 `wiliwili-PS4.pkg` 安装即可：[wiliwili releases](https://github.com/xfangfang/wiliwili/releases)
-
-只支持软解，如果想播放 4k@60 需要在设置中开启低画质解码。
-
-### PC
-
-PC客户端支持切换硬件解码、秒开流畅适合老电脑、支持鼠标操控（左键点击 右键返回 中键刷新）
-
-下载对应系统的安装包运行即可：[wiliwili releases](https://github.com/xfangfang/wiliwili/releases)
-
-> [!TIP]
-> 现在 Linux & Steam Deck 用户可以通过系统自带的软件商店（如Discover、GNOME Software）搜索 `wiliwili` 进行下载。  
-> 更多使用技巧请参考 [项目 WIKI](https://github.com/xfangfang/wiliwili/wiki)  
-
-<br>
-
-# 文档
-
-在各位开发者的帮助下，wiliwili 支持了一系列包管理器，同时 wiliwili 还拥有丰富的自定义选项，包括：使用 Anime4K
-提升观感，自定义字体及图标等等  
-前往 [项目 WIKI](https://github.com/xfangfang/wiliwili/wiki) 查看更多使用技巧
-
-<br>
-
-# TODO list
-
-如果你有其他改进的想法或创意，欢迎在讨论区交流：[Discussions](https://github.com/xfangfang/wiliwili/discussions/categories/ideas)
-
-<details>
-
-- [x] 初步完成底层基础组件、首页各类推荐视频、用户视频播放页
-- [x] 微调页面、解决播放器启动速度慢、解决播放页面退出卡顿
-- [x] 临时解决异步加载导致的空指针问题（图片异步加载某些情况还会出现问题，待修复）
-- [x] 添加番剧/影视播放、添加扫码登录、播放历史、用户收藏夹（收藏夹相关部分工作不稳定）
-- [x] 初步添加搜索
-- [x] 播放页新增分集与UP主最新投稿
-- [x] 完善视频播放页用户评论内容
-- [x] 重构图片异步加载逻辑
-- [x] 解决收藏夹、搜索页某些情况导致闪退的问题
-- [x] 完善搜索页：番剧、影视 转为竖图
-- [x] 完善播放页投稿列表：调整结构、自动加载下一页
-- [x] 播放页展示合集与推荐
-- [x] 添加动态页
-- [x] 添加视频检索页
-- [x] 完善设置页
-- [x] 弹幕相关设置
-- [x] 点赞、投币、收藏
-- [x] 拖拽调节进度
-- [x] 增加单手模式使用一个手柄来控制播放器
-- [x] NSP forwarder自动检查多个位置的nro文件，避免无法打开
-- [x] 增加设置使首页无法通过返回退出，避免误触
-- [x] 使用教程添加未指明的快捷键说明
-- [x] 重压摇杆临时快进
-- [x] 支持切换按键图标
-- [x] 应用内多语言切换
-- [x] 重构搜索页面
-- [x] 评论@显示不同颜色
-- [x] 完善评论图片
-- [x] 评论大表情包所在行增加行高
-- [x] 支持webp图片
-- [ ] 搜索支持搜索用户
-- [ ] 长按一键三连
-- [ ] 支持个人主页
-- [ ] 评论跳转进度
-- [ ] 评论跳转搜索
-- [ ] 评论下方的更多信息 (up主点赞等内容)
-- [ ] 投票评论
-- [ ] 互动视频
-
-</details>
-
-<br>
-
-# 反馈问题前要做的事
-
-1. 网络相关的问题附加 `网络诊断截图`，入口：应用内设置/实用工具/网络诊断
-2. [Switch用户] 要确保 `大气层`和`系统固件` 更新到 **最新** ，`内存卡`为 **FAT32**
-3. [Switch用户] 如果打开应用黑屏时间过长，可以尝试删除内存卡目录 `config/wiliwili` 重新进入
-4. 确保 `系统时间`正确、系统`网络设置`正确（主要是DNS）、如果使用了`网络代理`请在反馈前关闭并重新测试
-5. 查找有没有其他人出现过类似的问题：[Issues](https://github.com/xfangfang/wiliwili/issues?q=is%3Aissue)
-6. **完整且详细地** 描述你的问题，最好附加演示视频、截图。
-7. 尝试复现问题，尽力找到BUG出现的规律
-
-<br>
-
-# 贡献
-
-### 软件移植
-
-本应用基于 nanovg 绘制界面，nanovg 底层可移植切换到任意图形库，已有 OpenGL/Vulkan/Metal 等支持。   
-视频播放部分则使用 FFMPEG + MPV 绘制，默认使用 OpenGL，有 D3D11/Deko3d/Gxm 或软件渲染支持。  
-触摸/按键/输入法等平台相关功能通过 GLFW 或 SDL 来支持，也可以脱离二者直接实现，比如 Gxm 版 PSV。
-
-如果你要移植的设备支持 OpenGL(ES) 那么一般来说，直接编译就能正常运行。  
-如果你要移植的设备使用其他底层图形库，那么首先需要移植 nanovg，这可以确保应用主要界面正常，
-其次为了更好的性能表现需要 ffmpeg 的硬解和 mpv 的渲染支持。  
-
-如果你有想要移植的设备欢迎发一条 issue 讨论，Android / iOS 不在讨论之内。
-
-### 新功能
-
-如果你有想完成的创意，请在开发前发布一个 issue 讨论，避免和别人的创意撞车浪费了时间
-
-### 多语言支持
-
-如果你想为软件添加多语言的翻译支持，或者发现了某些翻译存在问题需要订正，请查看 [#52](https://github.com/xfangfang/wiliwili/issues/52)
-了解如何贡献翻译
-
-### 代码分支
-
-主分支 yoga 为最新版本的代码  
-开发分支 dev 为正在开发中的代码，任何新的 PR 都需要向 dev 分支提交
-
-<br>
-
-# 开发
-
-```shell
-# 拉取代码
-git clone --recursive https://github.com/xfangfang/wiliwili.git
-cd wiliwili
-```
-
-### PC本地运行
-
-目前 wiliwili 支持运行在 Linux macOS 和 Windows上
-
-<details>
-
-#### macOS
-
-```shell
-# macOS: install dependencies
-brew install mpv webp
-
-cmake -B build -DPLATFORM_DESKTOP=ON
-make -C build wiliwili -j$(sysctl -n hw.ncpu)
-```
-
-#### Linux
-
-不同 Linux 的编译过程或依赖可能不同，这里是一份总结：[#89](https://github.com/xfangfang/wiliwili/discussions/89)
-
-欢迎在上面的链接中写出你所使用系统的编译过程供大家参考。
-
-```shell
-# Ubuntu: install dependencies
-sudo apt install libssl-dev libmpv-dev libwebp-dev
-
-cmake -B build -DPLATFORM_DESKTOP=ON
-make -C build wiliwili -j$(nproc)
-```
-
-```shell
-# 如果你想安装在系统路径，并生成一个桌面图标，请使用如下内容编译
-cmake -B build -DPLATFORM_DESKTOP=ON -DINSTALL=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr
-make -C build wiliwili -j$(nproc)
-sudo make -C build install
-
-# uninstall (run after install)
-sudo xargs -a build/install_manifest.txt rm
-```
-
-#### Windows
-
-```shell
-# Windows: install dependencies (MSYS2 MinGW64)
-pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make \
-  git mingw-w64-x86_64-mpv mingw-w64-x86_64-libwebp
-
-cmake -B build -G "MinGW Makefiles" -DPLATFORM_DESKTOP=ON
-mingw32-make -C build wiliwili -j$(nproc)
-```
-
-
-</details>
-
-### 交叉编译 Switch 可执行文件 (wiliwili.nro)
-
-推荐使用docker构建，本地构建配置环境略微繁琐不过可用来切换底层的ffmpeg或mpv等其他依赖库更灵活地进行调试。
-
-<details>
-
-以下介绍 OpenGL 下的构建方法，deko3d (更好的硬解支持)请参考：`scripts/build_switch_deko3d.sh`
-
-#### Docker
-
-```shell
-docker run --rm -v $(pwd):/data devkitpro/devkita64:20251117 \
-  bash -c "/data/scripts/build_switch.sh"
-```
-
-#### 本地编译
-
-```shell
-# 1. 安装devkitpro环境: https://github.com/devkitPro/pacman/releases
-
-# 2. 安装依赖
-sudo dkp-pacman -S switch-glfw switch-libwebp switch-cmake switch-curl devkitA64
-
-# 3. 安装自定义依赖
-# devkitpro提供的提供的 ffmpeg/mpv 无法播放网络视频
-# 手动编译方法请参考：scripts/README.md
-base_url="https://github.com/xfangfang/wiliwili/releases/download/v0.1.0"
-sudo dkp-pacman -U \
-    $base_url/switch-ffmpeg-7.1-1-any.pkg.tar.zst \
-    $base_url/switch-libmpv-0.36.0-3-any.pkg.tar.zst
-
-# 4. build
-cmake -B cmake-build-switch -DPLATFORM_SWITCH=ON
-make -C cmake-build-switch wiliwili.nro -j$(nproc)
-```
-
-</details>
-
-### 交叉编译 PSV 可执行文件
-
-使用本地环境来编译可以参考：
- - [borealis 编译指南](https://github.com/xfangfang/borealis/wiki/PS-Vita)
- - [wiliwili vita 编译指南](https://gist.github.com/xfangfang/305da139721ad4e96d7a9d9a1a550a9d)
-
-注意: 我们使用自定义的 mbedtls, curl 和 ffmpeg 作为依赖, 在使用本地环境编译时，请先卸载 vitasdk 中的相关库，再安装[指定的](https://github.com/xfangfang/wiliwili/tree/yoga/scripts/psv)依赖.
-
-<details>
-
-```shell
-# 构建 OpenGL ES 2.0 版
-docker run --rm -v $(pwd):/src/ xfangfang/wiliwili_psv_builder:latest \
-    "cmake -B cmake-build-psv -G Ninja -DPLATFORM_PSV=ON \
-        -DMPV_NO_FB=ON -DUSE_SYSTEM_CURL=ON -DUSE_SYSTEM_SDL2=ON \
-        -DCMAKE_BUILD_TYPE=Release && \
-        cmake --build cmake-build-psv"
-
-# 构建 Gxm 版 (推荐)
-docker run --rm -v $(pwd):/src/ xfangfang/wiliwili_psv_builder:latest-gxm \
-    "cmake -B cmake-build-psv -G Ninja -DPLATFORM_PSV=ON \
-        -DUSE_SYSTEM_CURL=ON -DUSE_GXM=ON -DUSE_VITA_SHARK=OFF \
-        -DCMAKE_BUILD_TYPE=Release && \
-        cmake --build cmake-build-psv"
-```
-
-</details>
-
-### 交叉编译 PS4 可执行文件
-
-使用本地环境来编译可以参考: 
- - [PacBrew 环境安装](https://github.com/PacBrew/pacbrew-packages)
- - [borealis 编译指南](https://github.com/xfangfang/borealis/wiki/PS4)
- - [编译 wiliwili 依赖的第三方库](https://github.com/xfangfang/wiliwili/blob/dev/scripts/ps4/Dockerfile)
-
-<details>
-
-```shell
-docker run --rm -v $(pwd):/src/ xfangfang/wiliwili_ps4_builder:latest \
-    "cmake -B cmake-build-ps4 -DPLATFORM_PS4=ON \
-        -DMPV_NO_FB=ON \
-        -DUSE_SYSTEM_CPR=ON && \
-        make -C cmake-build-ps4 -j$(nproc)"
-```
-
-</details>
-
-### GLFW or SDL
-
-wiliwili 使用 nanovg 绘制图形和文字，对于创建窗口、按键触摸、输入法等支持是通过 GLFW(默认) 或 SDL 完成的。
-
-因为 GLFW 支持平台有限，在移植到新平台时可以使用 SDL 或者自行实现上述对应接口。
-
-```shell
-# 示例
-cmake -B build -DPLATFORM_DESKTOP=ON -DUSE_SDL2=ON
-cmake --build build
-```
-
-<br>
-
-# 应用截图
+<h1 align="center">wiliwili for Android</h1>
 
 <p align="center">
-<img src="docs/images/screenshot-3.jpg" alt="screenshot">
-<img src="docs/images/screenshot-4.jpg" alt="screenshot">
+  B 站第三方客户端的 <b>Android 移植版</b> · 支持 Android 6.0 及以上
 </p>
 
-# Acknowledgement
+<p align="center">
+  <img alt="Android" src="https://img.shields.io/badge/Android-6.0%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="ABI" src="https://img.shields.io/badge/ABI-arm64--v8a%20%7C%20armeabi--v7a-blue">
+  <img alt="minSdk" src="https://img.shields.io/badge/minSdk-23-lightgrey">
+  <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-green">
+</p>
 
-The development of wiliwili cannot do without the support of the following organization and open source projects.
+<p align="center">
+  <a href="#关于本项目"><b>关于本项目</b></a> |
+  <a href="#功能"><b>功能</b></a> |
+  <a href="#安装"><b>安装</b></a> |
+  <a href="#已知限制"><b>已知限制</b></a> |
+  <a href="#从源码构建"><b>从源码构建</b></a> |
+  <a href="#致谢"><b>致谢</b></a>
+</p>
 
-- Toolchain: devkitpro, switchbrew, vitasdk OpenOrbis and PacBrew
-    - https://github.com/devkitPro
-    - https://github.com/switchbrew/libnx
-    - https://github.com/vitasdk
-    - https://github.com/OpenOrbis
-    - https://github.com/PacBrew
-- UI Library: natinusala and XITRIX
-    - https://github.com/natinusala/borealis
-    - https://github.com/XITRIX/borealis
-- Video Player: Cpasjuste, proconsule, fish47 and averne
-    - https://github.com/Cpasjuste/pplay
-    - https://github.com/proconsule/nxmp
-    - https://github.com/fish47/FFmpeg-vita
-    - https://github.com/fish47/mpv-vita
-    - http://github.com/averne/FFmpeg
-    - http://github.com/averne/mpv
-- Misc
-    - https://github.com/libcpr/cpr
-    - https://github.com/nlohmann/json
-    - https://github.com/nayuki/QR-Code-generator
-    - https://github.com/BYVoid/OpenCC
-    - https://github.com/imageworks/pystring
-    - https://github.com/sammycage/lunasvg
-    - https://github.com/cesanta/mongoose
-    - https://chromium.googlesource.com/webm/libwebp
-    - https://github.com/fancycode/MemoryModule
+---
 
-# Special thanks
+## 关于本项目
 
-- Thanks to Crowdin for supporting [open-source projects](https://crowdin.com/page/open-source-project-setup-request).
+> **这是 [xfangfang/wiliwili](https://github.com/xfangfang/wiliwili) 的非官方 Android 移植版。**
+>
+> 本仓库的代码来自原作者 **xfangfang**，我在此基础上做了 Android 平台适配与二次开发。
+> 它不是上游项目的一部分，上游**不支持、也不接受** Android 移植（上游维护者已明确表示
+> Android / iOS 不在讨论范围内），因此 **Android 相关的问题请提到本仓库，不要去打扰原作者**。
+
+| | |
+|---|---|
+| **原作者** | xfangfang |
+| **作者主页** | https://github.com/xfangfang |
+| **上游仓库** | https://github.com/xfangfang/wiliwili |
+| **上游支持平台** | Nintendo Switch / PSVita / PS4 / Windows / macOS / Linux |
+| **本仓库** | https://github.com/bugggboy/wiliwili-android （Android 移植） |
+| **同系列** | [wiliwili for iOS](https://github.com/bugggboy/wiliwili) |
+| **许可证** | GPL-3.0（与原项目一致，本仓库同样以 GPL-3.0 分发） |
+
+**如果你觉得这个客户端做得好，功劳属于原作者，请先去上游仓库点一个 Star。**
+本项目只做了让它能在 Android 上编译和运行的工作，界面、交互逻辑、B 站接口封装全部来自上游。
+
+### 本移植版相对上游的改动
+
+1. **构建系统**：新增 `android/` Gradle 工程与 `android/app/jni/CMakeLists.txt`，
+   以 `PLATFORM_ANDROID=ON` 把仓库根的 wiliwili 工程接入 `externalNativeBuild`。
+   上游的 CMake 已经用 `program_target()` 创建目标，该宏在 Android 下会自动生成
+   `SHARED` 库（`libwiliwili.so`），因此**业务代码与根 CMakeLists 未作修改**。
+2. **SDL 处理**：borealis 的 `PLATFORM_ANDROID` 分支只用 `find_library()` 查找系统 SDL2，
+   纯源码构建时会退化成裸库名 `-lSDL2 -lSDL2main`。本移植版显式 `add_subdirectory(SDL)`，
+   并为 Android 补了一个空的 `SDL2main` 桩库（该库是桌面端提供 `main()` 包装用的）。
+3. **头文件映射**：`mpv_core.hpp` 在 `__SDL2__` 下写的是 `#include <SDL2/SDL.h>`（针对系统预装 SDL），
+   而源码构建的 SDL 头文件是平铺的，因此加了一个 `SDL2/ → SDL/include/` 的目录映射。
+4. **SSL 后端**：cpr 需要 SSL，而 Android NDK 不提供 OpenSSL 的头文件与库
+   （系统里的 `libssl` 是私有 API），因此由构建脚本用 NDK 交叉编译一份静态 OpenSSL。
+5. **播放核心**：使用 [mpv-android](https://github.com/mpv-android/mpv-android) 提供的
+   arm64-v8a 与 armeabi-v7a 预编译 `libmpv.so`，避免在 CI 里交叉编译 FFmpeg + mpv。
+
+除以上改动外，应用层业务代码未做修改。
+
+---
+
+## 功能
+
+界面与操作逻辑与上游保持一致，针对触摸屏做了适配。
+
+- **首页**：推荐 / 热门 / 番剧 / 影视 / 直播 等分区横向滑切
+- **搜索**：热搜、视频、番剧、影视，支持筛选
+- **动态**：关注 UP 主的最新投稿
+- **直播**：关注的主播与系统推荐
+- **播放页**：视频、番剧、电影、纪录片、综艺，支持**弹幕**与评论
+- **个人页**：扫码登录、历史记录、我的收藏、我的番剧、我的追剧
+- **主题**：深色 / 浅色主题，跟随系统自动切换
+- **多语言**：简体中文、繁体中文、日语、韩语、英语
+
+触屏操作：单指点击选择、上下滑动翻页、左右滑动切分区、播放页点击呼出控制栏。
+支持外接蓝牙 / USB 手柄（borealis 的输入层与上游一致）。
+
+---
+
+## 安装
+
+**直接安装 APK**，无需 root、无需 Magisk。
+
+前往 [Releases](https://github.com/bugggboy/wiliwili-android/releases/tag/android-preview)
+下载 `wiliwili-android-debug.apk`，用文件管理器或 `adb install` 安装即可。
+
+```bash
+adb install -r wiliwili-android-debug.apk
+```
+
+**系统要求**
+
+- Android **6.0（API 23）** 及以上
+- ABI：`arm64-v8a` 或 `armeabi-v7a`（暂不提供 x86 模拟器版本）
+- OpenGL ES 2.0 及以上
+
+> 目前构建产物是 **debug 签名**，可以直接安装，但每次换包都需要卸载重装或接受
+> 「签名不一致」提示。后续会提供固定密钥签名的 release 包。
+
+**登录**：个人页点击「扫码登录」，用手机上的 B 站 App 扫描屏幕上的二维码。
+
+---
+
+## 已知限制
+
+- **未做全机型回归**：目前验证的是构建链路与启动，不同厂商 ROM 的渲染 / 音频行为可能有差异
+- 极少数编码格式可能无画面（mpv 的解码后端以硬解为主，可尝试切换渲染方式）
+- 暂不提供 x86 / x86_64 ABI，因此不能在标准 Android 模拟器里跑
+- 未适配 Android 分屏 / 画中画，退出后不保留后台播放
+- 部分深度定制 ROM 可能因省电策略杀掉音频线程，需要手动加白名单
+
+---
+
+## 技术栈
+
+| 层 | 组件 | 说明 |
+|---|---|---|
+| UI 框架 | [borealis](https://github.com/xfangfang/borealis)（上游定制分支） | nanovg 绘制，Android 后端走 SDL2 + OpenGL ES 2.0 |
+| 窗口 / 输入 | SDL 2.28（borealis 子模块） | 触摸与手柄事件映射到上游的输入模型 |
+| 播放核心 | [mpv](https://github.com/mpv-player/mpv) 0.40（[mpv-android](https://github.com/mpv-android/mpv-android) 预编译） | `libmpv.so`，动态链接 |
+| 解码 | FFmpeg（已静态链进 libmpv.so） | — |
+| 网络 | **OpenSSL 1.1.1w**（NDK 交叉编译的静态库） | cpr 的 HTTPS 后端 |
+| 资源 | libromfs | 所有资源编进 `libwiliwili.so` |
+| 工具链 | NDK **22.1.7171670** / CMake 3.22.1 / AGP 7.4.2 / Gradle 7.6.4 | NDK 版本与 minSdk 强绑定，见下 |
+
+**为什么锁 NDK 22**：NDK 版本决定了能支持的最低 API —— r22/r23 支持 api16+，
+r24/r25 支持 api19+，r26 及以上只支持 api21+ 且会让低版本 Android 跑不起来。
+本项目要求 Android 6.0，因此必须用 r22。
+
+**构建产物指标**
+
+| 项 | 值 |
+|---|---|
+| minSdk / targetSdk / compileSdk | 23 / 31 / 31 |
+| ABI | arm64-v8a、armeabi-v7a |
+| 打包内容 | `libwiliwili.so`（业务 + borealis + 资源）、`libSDL2.so`、`libmpv.so`、`libc++_shared.so` |
+| APK 大小 | 约 105 MB（debug，未压缩优化，含两个 ABI） |
+
+---
+
+## 从源码构建
+
+### 方式一：GitHub Actions（推荐，仓库已配好）
+
+推送代码到 `yoga` 分支或手动触发 `.github/workflows/android.yml`，流程为：
+
+```
+ubuntu-latest
+  ├─ 安装 NDK 22.1 + CMake 3.22
+  ├─ 构建 host 版 libromfs-generator
+  ├─ 交叉编译 OpenSSL（arm64-v8a / armeabi-v7a）
+  ├─ 从 mpv-android 的 release APK 提取 libmpv.so
+  ├─ 复制 SDL 的 Java 层到 android/app/src/main/java/org
+  └─ gradle :app:assembleDebug → APK
+```
+
+### 方式二：本地
+
+```bash
+git clone --recursive -b yoga https://github.com/bugggboy/wiliwili-android.git
+cd wiliwili-android
+
+# 1. libromfs 生成器（Android 强制 USE_LIBROMFS）
+cd library/borealis
+cmake -S library/lib/extern/libromfs/generator -B build_libromfs_generator
+cmake --build build_libromfs_generator -j
+cp build_libromfs_generator/libromfs-generator .
+cd ../..
+
+# 2. 依赖：OpenSSL（NDK 交叉编译）+ libmpv.so + mpv 头文件 + mpv.pc
+#    具体命令见 .github/workflows/android.yml 的对应步骤
+
+# 3. SDL 的 Java 层
+cp -r library/borealis/android-project/app/src/main/java/org android/app/src/main/java/
+
+# 4. 构建
+cd android
+./gradlew assembleDebug    # 或 gradle :app:assembleDebug
+```
+
+产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。
+
+### 四个必须记住的坑
+
+1. **SDL 不会被自动构建**
+   borealis 的 Android 分支只 `find_library(SDL2 ...)`，不 `add_subdirectory`；
+   `find_library` 失败后 `list(APPEND ... SDL2 SDL2main)` 追加的是字符串，链接时变成
+   `-lSDL2 -lSDL2main`。必须自己 `add_subdirectory(SDL)` + 提供 `SDL2main` 桩库 + `link_directories`。
+2. **`<SDL2/SDL.h>` 找不到**
+   源码构建的 SDL 头文件是平铺的（`SDL/include/SDL.h`），需要建 `SDL2/` 目录映射。
+3. **cpr 报 `No valid SSL backend found`**
+   NDK 不提供 OpenSSL，必须自己交叉编译。而且 OpenSSL 的 `Configure` 认
+   `ANDROID_NDK_ROOT`（不是 `ANDROID_NDK_HOME`），并要求 `<triple><api>-clang` 在 `PATH` 里。
+4. **`build_libromfs_generator.sh` 不能用**
+   它写的是 `cmake -B <build> <src>`，CMake 3.x 会把 borealis 根目录当成源目录，
+   然后报 `Please set build target`。改用带 `-S` 的等价命令。
+
+---
+
+## 致谢
+
+- **[xfangfang](https://github.com/xfangfang)** —— wiliwili 的原作者。整个应用的设计、
+  界面、业务逻辑与 B 站接口封装都出自他手，本项目只是把它搬到了 Android 上。
+- **[borealis](https://github.com/xfangfang/borealis)** —— 上游自研的跨平台 UI 框架。
+  它的 `android-project/` 模板与 `PLATFORM_ANDROID` 平台层是这次移植得以成立的前提。
+- **[mpv](https://github.com/mpv-player/mpv) / [FFmpeg](https://ffmpeg.org/)** —— 播放与解码。
+- **[mpv-android](https://github.com/mpv-android/mpv-android)** —— 提供 arm64 / armv7 的 `libmpv.so`。
+- **[SDL](https://github.com/libsdl-org/SDL)** —— Android 上的窗口、输入与音频。
+- **[OpenSSL](https://www.openssl.org/)** —— HTTPS。
+- 以及所有上游依赖库的作者。
+
+---
+
+## 免责声明
+
+本项目为**第三方非官方客户端**，与哔哩哔哩（bilibili）官方无任何关联，
+仅供个人学习与交流使用。所有视频内容与版权归原平台及创作者所有。
+请勿将本项目用于商业用途。
+
+---
+
+## 许可证
+
+[GPL-3.0](./LICENSE)，与上游一致。
+
+根据 GPL-3.0 的要求：本仓库是对原项目的修改版本，修改内容已在上文
+「本移植版相对上游的改动」中说明；原始版权声明与许可证文件均完整保留。
+任何分发本移植版的行为同样须遵循 GPL-3.0，并提供完整源码。

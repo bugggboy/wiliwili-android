@@ -1,313 +1,184 @@
-# AGENTS.md — wiliwili Codebase Guide
+# AGENTS.md — wiliwili Android 移植版开发指南
 
-wiliwili is a cross-platform Bilibili client (Nintendo Switch, PSVita, PS4, PC) built in C++17. The UI is rendered via **nanovg**, windowing via **GLFW** or **SDL2**, and video playback via **mpv + FFmpeg**.
+本仓库是 [xfangfang/wiliwili](https://github.com/xfangfang/wiliwili) 的 **Android 移植版**（GPL-3.0）。
+上游支持 Switch / PSVita / PS4 / Windows / macOS / Linux，**Android 由本仓库独立维护**，
+上游不接受 Android 相关补丁，因此 Android 的问题与改动都在这里处理。
+
+改代码前请先读本文件；涉及上游业务逻辑时，优先查阅上游仓库与
+[`AGENTS.md`](https://github.com/xfangfang/wiliwili/blob/yoga/AGENTS.md) 中更完整的约定。
 
 ---
 
-## Architecture Layers (Android-inspired)
+## 平台约束（最重要）
 
-| Layer | Directory | Role |
+| 项 | 值 | 说明 |
 |---|---|---|
-| Activity | `wiliwili/include/activity/`, `wiliwili/source/activity/` | Top-level full-screen pages |
-| Fragment | `wiliwili/include/fragment/`, `wiliwili/source/fragment/` | Sub-pages composed within Activities |
-| Presenter | `wiliwili/include/presenter/` | Async data-fetching logic; Fragments inherit Presenters |
-| View | `wiliwili/include/view/` | Custom reusable UI components (MPVCore, RecyclingGrid, VideoView…) |
-| API | `wiliwili/include/api/bilibili/` | Bilibili REST/gRPC wrappers via cpr + nlohmann/json |
-| Utils | `wiliwili/include/utils/` | Intent (navigation), ProgramConfig (settings), ImageHelper, EventHelper |
+| minSdk | **23（Android 6.0）** | 决定了 NDK 只能用 r22/r23，见下表 |
+| NDK | **22.1.7171670** | r22/r23 → api16+；r24/r25 → api19+；r26+ → 只到 api21+ **且低版本会跑不起来** |
+| ABI | arm64-v8a、armeabi-v7a | 不提供 x86，因此标准模拟器跑不了 |
+| 图形 | OpenGL ES 2.0 | `USE_GLES2`，走 SDL2 + GLES |
+| 资源 | libromfs 强制开启 | 所有 `resources/` 编进 `libwiliwili.so` |
+| 音频 | SDL2 音频回调 | 部分 ROM 的省电策略会杀线程，需要白名单 |
 
-The UI framework is a custom fork of **borealis** (`library/borealis/`). All views inherit `brls::Box` or its subclasses.
+**改 NDK 版本前先确认 minSdk**：这两个是绑死的，升级 NDK 会直接掐掉低版本设备。
 
 ---
 
-## Key Patterns
+## 架构分层
 
-### Presenter / async safety
-Every Fragment that fetches data inherits a Presenter class. Use the macros in `wiliwili/include/presenter/presenter.h` to guard callbacks against use-after-free:
+| 层 | 目录 | 职责 |
+|---|---|---|
+| Activity | `wiliwili/include/activity/`、`wiliwili/source/activity/` | 顶层整屏页面 |
+| Fragment | `wiliwili/include/fragment/`、`wiliwili/source/fragment/` | Activity 内的子页面 |
+| Presenter | `wiliwili/include/presenter/` | 异步取数，Fragment 继承 Presenter |
+| View | `wiliwili/include/view/` | 可复用组件（MPVCore、RecyclingGrid、VideoView…） |
+| API | `wiliwili/include/api/bilibili/` | B 站接口封装（cpr + nlohmann/json） |
+| Utils | `wiliwili/include/utils/` | Intent（导航）、ProgramConfig（配置）、ImageHelper 等 |
+
+UI 框架是上游定制分支的 **borealis**（`library/borealis/`），所有视图继承 `brls::Box`。
+
+---
+
+## Android 壳层
+
+```
+android/
+├── build.gradle / settings.gradle / gradle.properties
+└── app/
+    ├── build.gradle                  # minSdk 23 / NDK 22.1 / abiFilters
+    ├── jni/CMakeLists.txt            # 把仓库根的 wiliwili 接进 externalNativeBuild
+    └── src/main/
+        ├── AndroidManifest.xml       # INTERNET 权限、GLES2、fullSensor
+        └── java/com/bugggboy/wiliwili/WiliwiliActivity.java
+```
+
+`WiliwiliActivity` 继承 SDL 的 `SDLActivity`，三件事：
+1. 注册 `BorealisHandler`（borealis 通过它调整屏幕亮度）
+2. 全屏沉浸式
+3. `onDestroy` 里 `System.exit(0)` —— borealis 大量使用静态变量，Activity 被重建会渲染异常
+
+`getLibraries()` 返回 `{"SDL2", "wiliwili"}`，对应 `libSDL2.so` 与 `libwiliwili.so`。
+
+**`org.libsdl.app.*` 的 Java 层不进仓库**，构建时从
+`library/borealis/android-project/app/src/main/java/org` 复制过去，这样永远跟子模块同步。
+
+---
+
+## 关键约定
+
+### Presenter 的异步安全
+
+每个取数的 Fragment 都继承 Presenter，回调必须用宏保护：
+
 ```cpp
 void requestSomething() {
-    ASYNC_RETAIN  // captures token, tokenCounter
+    ASYNC_RETAIN
     bilibili::HTTP::getResultAsync<MyType>(url, params, [ASYNC_TOKEN](auto result) {
-        ASYNC_RELEASE  // returns early if the view was destroyed
+        ASYNC_RELEASE              // view 已销毁则提前返回
         brls::Threading::sync([this, result]() {
-            // safe to update UI here (main thread)
+            // 这里可以安全更新 UI（主线程）
         });
     });
 }
 ```
-Use `CHECK_AND_SET_REQUEST` / `UNSET_REQUEST` to prevent duplicate in-flight requests.
 
-### XML-driven UI
-- Layout files live in `resources/xml/` (`activity/`, `fragment/`, `views/`).
-- Inflate in constructor: `this->inflateFromXMLRes("xml/fragment/home_recommends.xml");`
-- Bind a child by XML id: `BRLS_BIND(RecyclingGrid, recyclingGrid, "home/recommends/recyclingGrid");`
-- Custom views must be registered before use: `brls::Application::registerXMLView("RecyclingGrid", RecyclingGrid::create);` (done in `Register::initCustomView()` called from `main.cpp`).
-- Valid custom XML element names (all registered in `Register::initCustomView()`):
-  - **UI widgets:** `AutoTabFrame`, `RecyclingGrid`, `VideoView`, `VideoProfile`, `QRImage`, `SVGImage`, `TextBox`, `VideoProgressSlider`, `GalleryView`, `CustomButton`, `HintLabel`
-  - **App views:** `UserInfoView`, `UpUserSmall`, `VideoComment`, `ButtonClose`, `CheckBox`, `SelectorCell`, `AnimationImage`, `ShareBox`, `DynamicVideoCardView`, `DynamicArticleView`
-  - **Fragments:** `HomeTab`, `DynamicTab`, `MineTab`, `HomeRecommends`, `HomeHotsAll`, `HomeHotsHistory`, `HomeHotsWeekly`, `HomeHotsRank`, `HomeHots`, `HomeLive`, `HomeBangumi`, `HomeCinema`, `MineHistory`, `MineLater`, `MineCollection`, `MineBangumi`, `SearchTab`, `SearchOrder`, `SearchVideo`, `SearchCinema`, `SearchBangumi`, `SearchHots`, `SearchHistory`
-- i18n key syntax in XML: `@i18n/wiliwili/some/key`; translation files are in `resources/i18n/{en-US,zh-Hans,zh-Hant,ja,ko,it,ja-RYU}/wiliwili.json`.
+用 `CHECK_AND_SET_REQUEST` / `UNSET_REQUEST` 防止重复请求。
 
-### Navigation — use `Intent`, never push directly
-`wiliwili/include/utils/activity_helper.hpp` defines all navigation entry points:
-```cpp
-Intent::openBV("BV1Da411Y7U4");         // video by BV id
-Intent::openSeasonByEpId(323434);       // bangumi episode
-Intent::openLive(1942240);              // live room
-Intent::openSearch("keyword");
-Intent::openSetting();
-Intent::openCollection("2511565362");   // favorites folder
-Intent::openPgcFilter("/page/home/pgc/more?type=2&..."); // PGC filter
-```
+### XML 驱动的界面
 
-### HTTP API calls
-All calls are async via `bilibili::HTTP` (`wiliwili/include/api/bilibili/util/http.hpp`):
-```cpp
-// Standard GET → parses {"code":0,"data":{...}}
-HTTP::getResultAsync<MyResult>(Api::SomeEndpoint, params, callback, error);
+布局在 `resources/xml/`。**改界面优先改 XML**，不要用代码堆布局。
+资源经 libromfs 编进 `libwiliwili.so`，改了资源必须重新编译（不是热替换）。
 
-// For WBI-signed endpoints (most web-interface APIs since 2023):
-HTTP::getResultWithWbiAsync<MyResult>(Api::SomeEndpoint, params, callback, error);
+### 触摸
 
-// For app-signed endpoints (pass needSign=true):
-HTTP::getResultAsync<MyResult>(url, params, callback, error, /*needSign=*/true);
-
-// POST with typed response:
-HTTP::postResultAsync<MyResult>(url, params, payload, callback, error);
-```
-- API URL constants: `wiliwili/include/api/bilibili/api.h`; JSON result structs: `wiliwili/include/api/bilibili/result/`
-- `parseJson` looks for `data` (object/array) first, then `result` (object) as fallback when `code==0`
-- **WBI signing** (`getResultWithWbiAsync`): fetches `img_key`+`sub_key` from `Api::Nav`, computes `mixin_key`, appends `wts` + `w_rid`. Keys cached for 1 hour. Required for most `/x/web-interface/` endpoints since 2023.
-- HTTP defaults: `User-Agent: wiliwili`, `Referer: https://www.bilibili.com/client`, timeout 10000ms. Proxy and TLS verify are configurable via `SettingItem::HTTP_PROXY*` / `SettingItem::TLS_VERIFY`.
-
-### RecyclingGrid (custom recycler view)
-Implement `RecyclingGridDataSource` and call `recyclingGrid->setDataSource(...)`. Example from `player_activity.cpp`:
-```cpp
-class DataSourceFoo : public RecyclingGridDataSource {
-    RecyclingGridItem* cellForRow(RecyclingGrid* recycler, size_t index) override {
-        auto* item = (MyCell*)recycler->dequeueReusableCell("Cell");
-        item->setData(list[index]);
-        return item;
-    }
-    size_t getItemCount() override { return list.size(); }
-    void onItemSelected(RecyclingGrid* recycler, size_t index) override { /* handle tap */ }
-    void clearData() override { list.clear(); }
-};
-```
-`recyclingGrid->onNextPage([]{...})` triggers when the user scrolls to the end (infinite scroll).
-
-### Image loading
-Always append a platform-aware suffix:
-```cpp
-ImageHelper::with(imageView)->load(url + ImageHelper::h_ext);    // horizontal thumbnail (@672w_378h on PC)
-ImageHelper::with(imageView)->load(url + ImageHelper::v_ext);    // vertical thumbnail (@312w_420h on PC)
-ImageHelper::with(imageView)->load(url + ImageHelper::face_ext); // avatar (@96w_96h on PC)
-```
-`IMAGE_EXT` resolves to `.webp` when `USE_WEBP` is defined, else `.jpg`. PSV uses smaller sizes (e.g. `@256w_144h` for horizontal).
-
-### Global event bus
-Defined in `wiliwili/include/utils/event_helper.hpp`:
-- `MPV_E` — player state (`MPV_LOADED`, `MPV_PAUSE`, `MPV_RESUME`, `UPDATE_PROGRESS`, `END_OF_FILE`, `RESET`, `RESTART`, `CACHE_SPEED_CHANGE`, `VIDEO_SPEED_CHANGE`, …)
-- `APP_E` — app-wide custom events (string key + void*)
-- `SEARCH_E` — search page events
-
-Subscribe: `MPV_E->subscribe([](MpvEventEnum e){ ... });`  Fire: `MPV_E->fire(MPV_PAUSE);`
-
-### Settings / ProgramConfig
-`ProgramConfig::instance()` is a singleton that must be initialized with `init()` **before** `brls::Application::init()`. All settings use the `SettingItem` enum (defined in `wiliwili/include/utils/config_helper.hpp`). Notable items:
-- `PLAYER_HWDEC` / `PLAYER_HWDEC_CUSTOM` — hardware decode method
-- `APP_RESOURCES` — active custom theme ID (requires restart to apply)
-- `KEYMAP` — button icon set: `"xbox"` (PC default), `"ps"`, `"keyboard"`
-- `HTTP_PROXY`, `HTTP_PROXY_STATUS`, `TLS_VERIFY` — network settings
-- `SHORTCUT_*` — rebindable keyboard shortcuts (modifier-key strings, e.g. `"ctrl-r"`)
-
-### Custom Theme / Layout System
-Themes live in `{configDir}/theme/{id}/` and can override any file under `resources/`.
-- A theme directory must contain `resources_meta.json`: `{"name":"…","desc":"…","version":"…","author":"…"}`
-- Discovered by `ProgramConfig::loadCustomThemes()` at startup; theme ID stored in `SettingItem::APP_RESOURCES`
-- Switching themes calls `DialogHelper::quitApp()` — restart is required
-- Reference theme repo: https://github.com/xfangfang/wiliwili_theme
-
-### Custom Fonts & Icons
-Drop these files into the config directory to override built-in assets:
-
-| Filename | Purpose |
-|---|---|
-| `font.ttf` | Main UI font |
-| `icon.ttf` | Button icon font |
-| `emoji.ttf` | Emoji font |
-| `danmaku.ttf` | Danmaku overlay font |
-| `gamecontrollerdb.txt` | SDL gamepad database (desktop only) |
-
-Built-in keymap fonts in `resources/font/`: `keymap_xbox.ttf`, `keymap_ps.ttf`, `keymap_keyboard.ttf`.
-
-### Anime4K / Shader System
-`ShaderHelper` (singleton, `wiliwili/include/utils/shader_helper.hpp`) manages profiles loaded from `{configDir}/shader.json`:
-```json
-{
-  "profiles": [
-    {
-      "name": "Anime4K Mode A",
-      "shaders": ["/path/to/Anime4K_Clamp_Highlights.glsl"],
-      "settings": [["set", "scaler", "ewa_lanczossharp"]]
-    }
-  ],
-  "animeList": [{ "anime": 28223043, "profile": "Anime4K Mode A" }]
-}
-```
-- `settings` entries: `["set","key","val"]`, `["change-list","key","op","val"]`, or `["run","cmd"]`.
-- Apply/clear with `ShaderHelper::instance().setShader(index)` / `clearShader()`.
-
-### MPV Rendering Modes
-
-| Mode | Trigger | Notes                                                  |
-|---|---|--------------------------------------------------------|
-| Framebuffer (default) | `MPV_USE_FB` (auto) | GL 3.2+ / GLES 2.0+; best performance                  |
-| No framebuffer | `-DMPV_NO_FB=ON` | MPV draws fullscreen, UI is overlaid; PS4, PSV-GL, GL2 |
-| Software render | `-DMPV_SW_RENDER=ON` | CPU only; for UWP/D3D12 porting                        |
-| deko3d | `BOREALIS_USE_DEKO3D` | Switch native; 4K@60 with hardware decode              |
-| GXM | `BOREALIS_USE_GXM` | PSVita native                                          |
-| D3D11 | `BOREALIS_USE_D3D11` | Windows Native/UWP                                     |
-
-Default hardware decode: Switch/GXM → `"auto"`, PSV-GL → `"vita-copy"`, PS4 → `"no"`, Desktop → `"auto-safe"`.
-
-### Video Quality Codes
-
-| Code | Quality | Notes |
-|---|---|---|
-| 127 | 8K | |
-| 120 | 4K | |
-| 116 | 1080P60 | Default on non-PSV |
-| 80 | 1080P | |
-| 64 | 720P | Default PSV GXM |
-| 32 | 480P | Default PSV OpenGL |
-| 16 | 360P | Default when logged out |
+上游输入模型是「焦点 + 按键」，Android 上由 SDL 把触摸映射成该模型。
+新增可交互控件时确保它在焦点体系里可达（`setFocusable` / `registerXMLView`），否则点不到。
 
 ---
 
-## Config Directory Locations
+## 构建
 
-| Platform | Path |
-|---|---|
-| Nintendo Switch | `/config/wiliwili/` |
-| PS4 | `/data/wiliwili/` |
-| PSVita | `ux0:/data/wiliwili/` |
-| macOS (release) | `~/Library/Application Support/wiliwili/` |
-| Linux (release) | `$XDG_CONFIG_HOME/wiliwili/` or `~/.config/wiliwili/` |
-| Windows (release) | `%LOCALAPPDATA%\xfangfang\wiliwili\` |
-| Any platform (debug build) | `./config/wiliwili/` (next to binary) |
+CI：`.github/workflows/android.yml`，runner 是 `ubuntu-latest`（Android 不像 iOS 要 macOS，
+一分钟档，跑一轮约 15 分钟，依赖有缓存）。
 
-Main config file: `{configDir}/wiliwili_config.json` (cookie, refreshToken, all SettingItem values, GA client ID, search history).
+```bash
+git clone --recursive -b yoga https://github.com/bugggboy/wiliwili-android.git
+cd wiliwili-android
+
+# 1. libromfs 生成器（不要用 borealis 自带的脚本，见下面坑 4）
+cd library/borealis
+cmake -S library/lib/extern/libromfs/generator -B build_libromfs_generator
+cmake --build build_libromfs_generator -j"$(nproc)"
+cp build_libromfs_generator/libromfs-generator .
+cd ../..
+
+# 2. 依赖（详见 workflow）：OpenSSL / libmpv.so / mpv 头文件 / mpv.pc
+
+# 3. SDL Java 层
+cp -r library/borealis/android-project/app/src/main/java/org android/app/src/main/java/
+
+# 4. 构建
+cd android && gradle :app:assembleDebug
+```
+
+### 四个必须记住的坑
+
+1. **SDL 不会自动构建**
+   borealis 的 `PLATFORM_ANDROID` 分支只有 `find_library(SDL2 NAMES SDL2 SDL2main)`，
+   没有 `add_subdirectory`。`find_library` 失败后 `list(APPEND BRLS_PLATFORM_LIBS SDL2 SDL2main)`
+   追加的是**字符串**，链接时变成 `-lSDL2 -lSDL2main`。
+   → `jni/CMakeLists.txt` 里显式 `add_subdirectory(SDL)`、建空 `SDL2main` 静态库、
+   `link_directories` 指到构建输出、再 `add_dependencies(wiliwili SDL2)` 保证顺序。
+
+2. **`<SDL2/SDL.h>` 解析不到**
+   `mpv_core.hpp` 在 `__SDL2__` 下 `#include <SDL2/SDL.h>`，那是给系统预装 SDL 用的；
+   源码构建的头是平铺的 `SDL/include/SDL.h`。
+   → 建 `build/.../sdl2_shim/SDL2 → SDL/include` 的符号链接并 `include_directories`。
+
+3. **SSL：`No valid SSL backend found`**
+   cpr 需要 SSL 后端，而 NDK **不提供** OpenSSL（系统 `libssl` 是私有 API，不能链）。
+   → 用 NDK 交叉编译静态 OpenSSL，并在 `jni/CMakeLists.txt` 里设 `OPENSSL_ROOT_DIR` /
+   `OPENSSL_INCLUDE_DIR` / `OPENSSL_SSL_LIBRARY` / `OPENSSL_CRYPTO_LIBRARY`（按 ABI 分目录）。
+   OpenSSL 的 `Configure` 认 `ANDROID_NDK_ROOT`（不是 `ANDROID_NDK_HOME`），
+   且要求 `<triple><api>-clang` 在 `PATH` 里，否则报 `no NDK aarch64-linux-android-gcc on $PATH`。
+
+4. **`build_libromfs_generator.sh` 在 CMake 3.x 下不可用**
+   它写的是 `cmake -B <build> <src>`，CMake 会把 borealis 根目录当源目录，
+   接着 `include(toolchain.cmake)` 报 `Please set build target`。用带 `-S` 的等价命令。
+
+### mpv
+
+不用自己编译：从 [mpv-android](https://github.com/mpv-android/mpv-android) 的 release APK 里
+解出 `lib/<abi>/libmpv.so`，头文件从 mpv 源码取（`include/mpv/*.h`）。
+`mpv.pc` 只写 `-lmpv`，链接目录在 `jni/CMakeLists.txt` 里按 `${CMAKE_ANDROID_ARCH_ABI}` 指定
+（pkg-config 无法区分 ABI）。
 
 ---
 
-## Build Commands
+## 相对上游修改过的文件
 
-### Desktop (macOS)
-```sh
-brew install mpv webp
-cmake -B build -DPLATFORM_DESKTOP=ON
-make -C build wiliwili -j$(sysctl -n hw.ncpu)
-# macOS app bundle:
-make -C build wiliwili.app
-```
+改动集中在构建与打包层，业务代码保持与上游一致，便于日后合并上游更新：
 
-### Desktop (Linux/Ubuntu)
-```sh
-sudo apt install libssl-dev libmpv-dev libwebp-dev
-cmake -B build -DPLATFORM_DESKTOP=ON
-make -C build wiliwili -j$(nproc)
-# System install with .desktop entry:
-cmake -B build -DPLATFORM_DESKTOP=ON -DINSTALL=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-make -C build wiliwili -j$(nproc) && sudo make -C build install
-```
-
-### Nintendo Switch (Docker, recommended)
-```sh
-docker run --rm -v $(pwd):/data devkitpro/devkita64:20251117 bash -c "/data/scripts/build_switch.sh"
-# deko3d variant (4K@60 hardware decode):
-# see scripts/build_switch_deko3d.sh
-```
-Switch requires custom ffmpeg/mpv (devkitpro defaults don't support network streams):
-```sh
-base_url="https://github.com/xfangfang/wiliwili/releases/download/v0.1.0"
-sudo dkp-pacman -U $base_url/switch-ffmpeg-7.1-1-any.pkg.tar.zst \
-                   $base_url/switch-libmpv-0.36.0-3-any.pkg.tar.zst
-cmake -B cmake-build-switch -DPLATFORM_SWITCH=ON
-make -C cmake-build-switch wiliwili.nro -j$(nproc)
-```
-
-### PSVita / PS4 (Docker)
-```sh
-# PSVita GXM (recommended):
-docker run --rm -v $(pwd):/src/ xfangfang/wiliwili_psv_builder:latest-gxm \
-    "cmake -B cmake-build-psv -G Ninja -DPLATFORM_PSV=ON -DUSE_GXM=ON \
-     -DUSE_SYSTEM_CURL=ON -DUSE_VITA_SHARK=OFF -DCMAKE_BUILD_TYPE=Release && \
-     cmake --build cmake-build-psv"
-# PS4:
-docker run --rm -v $(pwd):/src/ xfangfang/wiliwili_ps4_builder:latest \
-    "cmake -B cmake-build-ps4 -DPLATFORM_PS4=ON -DMPV_NO_FB=ON \
-     -DUSE_SYSTEM_CPR=ON && make -C cmake-build-ps4 -j$(nproc)"
-```
-
-### Useful CMake flags
-| Flag | Purpose |
+| 文件 / 位置 | 改动 |
 |---|---|
-| `-DUSE_SDL2=ON` | Use SDL2 instead of GLFW |
-| `-DMPV_NO_FB=ON` | No framebuffer (PS4, PSV GL, GL 2.0) |
-| `-DMPV_SW_RENDER=ON` | CPU software rendering |
-| `-DMPV_BUNDLE_DLL=ON` | Bundle mpv.dll into exe (Windows + USE_LIBROMFS=ON) |
-| `-DDISABLE_OPENCC=ON` | Skip Chinese conversion library |
-| `-DDISABLE_WEBP=ON` | Skip WebP support |
-| `-DINSTALL=ON` | Linux system install with desktop entry |
-| `-DDEBUG_SANITIZER=ON` | Enable ASan/UBSan (debug only) |
-| `-DUSE_LIBROMFS=ON` | Embed resources into binary |
-| `-DBUILTIN_NSP=ON` | Embed NSP forwarder (Switch only) |
-| `-DAPP_PLATFORM_CUSTOM_LIBS=ON` | Manual deps: `APP_PLATFORM_INCLUDE` + `APP_PLATFORM_LINK_OPTION` |
+| `android/`（新增） | Gradle 工程 + Activity + Manifest |
+| `README.md` | 改写为 Android 专用说明 |
+| `AGENTS.md` | 本文件，改写为 Android 专用 |
+| `.github/workflows/` | 仅保留 `android.yml`，其余平台 CI 已移除 |
+
+wiliwili 根 `CMakeLists.txt` **未修改** —— `program_target()` 已经能处理 Android。
+
+合上游更新时：`git remote add upstream https://github.com/xfangfang/wiliwili.git && git fetch upstream yoga`，
+冲突通常只出现在 `README.md` / `AGENTS.md`。
 
 ---
 
-## Debugging
+## 验证清单
 
-- Run with `-d` for debug log level, `-v` for borealis visual debug overlay, `-t` for mpv terminal output, `-o <file>` to write log to file.
-- To test a specific page without navigating the UI, uncomment the relevant `Intent::open*()` line in `main.cpp` (many test BV IDs are already commented there).
-- `ProgramConfig::instance().init()` loads cookies and all settings; it must run before `brls::Application::init()`.
-- In-app network diagnostics: Settings → Tools → Network Diagnostics (`fragment/setting_network`). Shows API connectivity, system/server time diff, WiFi state, IP, DNS.
-- On Switch: if the app is black-screen on startup, delete `/config/wiliwili/` from SD card and retry.
+改动后至少确认：
 
----
-
-## Platform Macros
-
-| Macro | Platform |
-|---|---|
-| `__SWITCH__` | Nintendo Switch |
-| `__PSV__` | PlayStation Vita |
-| `PS4` | PlayStation 4 |
-| `BOREALIS_USE_OPENGL` / `BOREALIS_USE_DEKO3D` / `BOREALIS_USE_D3D11` / `BOREALIS_USE_GXM` | Rendering backend |
-| `MPV_USE_FB` / `MPV_NO_FB` | Framebuffer mode (auto-derived from above) |
-| `USE_WEBP` | WebP image decoding enabled |
-
----
-
-## Key Files at a Glance
-
-| File | Description |
-|---|---|
-| `wiliwili/source/main.cpp` | Entry point; registers views, launches activity |
-| `wiliwili/include/utils/activity_helper.hpp` | `Intent` — all navigation |
-| `wiliwili/include/utils/config_helper.hpp` | `ProgramConfig` singleton, `SettingItem` enum |
-| `wiliwili/include/utils/event_helper.hpp` | Global event buses (`MPV_E`, `APP_E`, `SEARCH_E`) |
-| `wiliwili/include/presenter/presenter.h` | `ASYNC_RETAIN`/`ASYNC_RELEASE` macros |
-| `wiliwili/include/api/bilibili/util/http.hpp` | `HTTP::getResultAsync`, `getResultWithWbiAsync` |
-| `wiliwili/include/api/bilibili/util/wbi.hpp` | WBI signing implementation |
-| `wiliwili/include/api/bilibili/api.h` | All Bilibili API URL constants |
-| `wiliwili/include/view/recycling_grid.hpp` | Recycler list widget |
-| `wiliwili/include/utils/image_helper.hpp` | Async image loading + platform-sized URL suffixes |
-| `wiliwili/include/utils/shader_helper.hpp` | Anime4K / mpv shader profile management |
-| `wiliwili/include/view/mpv_core.hpp` | MPV singleton, playback control, rendering backend |
-| `wiliwili/include/view/danmaku_core.hpp` | Danmaku (bullet comment) overlay rendering |
-| `wiliwili/include/api/live/danmaku_live.hpp` | Live room WebSocket danmaku via mongoose |
-| `resources/xml/` | All UI layout files |
-| `resources/i18n/` | Translations (en-US, zh-Hans, zh-Hant, ja, ko, it, ja-RYU) |
-| `scripts/` | Build scripts for each platform; `README.md` covers custom ffmpeg/mpv for Switch |
-
+- [ ] `android/app/build.gradle` 的 `minSdkVersion` 仍是 23，`ndkVersion` 仍是 22.1.7171670
+- [ ] APK 里四个 `.so` 齐全：`libwiliwili.so`、`libSDL2.so`、`libmpv.so`、`libc++_shared.so`
+- [ ] `libwiliwili.so` 里没有未解析的 OpenSSL 符号（`readelf -d` 无 `libssl.so` 依赖）
+- [ ] 在 Android 6.0 与较新版本（如 Android 13）设备上都能启动
+- [ ] 首页能出内容、能扫码登录、能播放并显示弹幕

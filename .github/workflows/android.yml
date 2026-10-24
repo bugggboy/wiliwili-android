@@ -143,10 +143,27 @@ jobs:
               curl -sSL --retry 3 -o "dl/$apk" \
                 "https://github.com/mpv-android/mpv-android/releases/download/${MPV_ANDROID_TAG}/${apk}"
             fi
-            unzip -o -j "dl/$apk" "lib/$abi/libmpv.so" -d "$PREFIX/lib/$abi" >/dev/null
-            cp "$PREFIX/lib/$abi/libmpv.so" "android/app/libs/$abi/libmpv.so"
-            echo "$abi: $(du -h "$PREFIX/lib/$abi/libmpv.so" | cut -f1)"
-            # 顺便确认渲染 API 是否存在（wiliwili 依赖 mpv_render_context）
+            # libmpv.so 是动态链接的，运行时还要 libavcodec / libavformat / libavutil /
+            # libswresample / libswscale / libavfilter / libplacebo 等同目录的 .so，
+            # 所以整个 lib/<abi>/ 都要取出来，只把 libmpv.so 拿去链接。
+            rm -rf "dl/x-$abi"; mkdir -p "dl/x-$abi"
+            unzip -o "dl/$apk" "lib/$abi/*.so" -d "dl/x-$abi" >/dev/null
+            echo "---- $abi 依赖库 ----"
+            ls -la "dl/x-$abi/lib/$abi" | awk '{print "  ", $5, $9}'
+            copytolibs() {
+              for so in "dl/x-$abi/lib/$abi"/*.so; do
+                n=$(basename "$so")
+                # 排除 mpv-android 自带的 libc++（与我们 NDK 22 编的版本不同，混用会崩）
+                [ "$n" = "libc++_shared.so" ] && continue
+                cp "$so" "android/app/libs/$abi/$n"
+              done
+            }
+            mkdir -p "android/app/libs/$abi"
+            copytolibs
+            cp "dl/x-$abi/lib/$abi/libmpv.so" "$PREFIX/lib/$abi/libmpv.so"
+            echo "$abi libmpv: $(du -h "$PREFIX/lib/$abi/libmpv.so" | cut -f1)"
+            echo "---- $abi libmpv 的 NEEDED ----"
+            readelf -d "$PREFIX/lib/$abi/libmpv.so" 2>/dev/null | grep NEEDED | head -20 || true
             if ! strings "$PREFIX/lib/$abi/libmpv.so" | grep -q "mpv_render_context_create"; then
               echo "::warning::$abi 的 libmpv.so 可能不含 render API"
             fi
@@ -200,6 +217,14 @@ jobs:
           unzip -l "$APK" | grep -E "lib/.*\.so$" || echo "!! APK 里没有任何 .so"
           echo "===== .so 统计 ====="
           unzip -l "$APK" | awk '/lib\/.*\.so$/{n++; s+=$1; printf "  %-46s %7.1f MB\n", $4, $1/1048576} END{printf "  合计 %d 个 / %.1f MB\n", n, s/1048576}'
+          echo "===== 运行时依赖完整性 ====="
+          for so in "android/app/libs"/*/*.so; do
+            [ -f "$so" ] || continue
+            miss=$(readelf -d "$so" 2>/dev/null | awk '/NEEDED/{gsub(/\[|\]/,"",$5); print $5}' \
+                   | grep -vE "^(libc\.so|libm\.so|libdl\.so|liblog\.so|libz\.so|libstdc\+\+\.so|libc\+\+_shared\.so|libandroid\.so|libGLESv[0-9]\.so|libEGL\.so|libOpenSLES\.so|libjnigraphics\.so|libmediandk\.so)$" \
+                   | while read -r need; do [ -f "android/app/libs/$(basename $(dirname "$so"))/$need" ] || echo "$need"; done)
+            [ -n "$miss" ] && echo "!! $(basename "$so") 缺: $miss"
+          done
           echo "===== dex / 资源 ====="
           unzip -l "$APK" | awk '/classes.*\.dex$|resources\.arsc$/{printf "  %-46s %7.1f MB\n", $4, $1/1048576}'
           mkdir -p out
