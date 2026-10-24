@@ -40,4 +40,22 @@ else()
     message(WARNING "未找到 ${MPV_LIB_DIR}/libmpv.so，链接阶段会失败")
 endif()
 
+# cpr（wiliwili 的 HTTPS 客户端）需要一个 SSL 后端。
+# Android NDK 不提供 OpenSSL 的头文件和库（系统里的 libssl 是私有 API），
+# 所以由 CI 用 NDK 交叉编译一份静态 OpenSSL，按 ABI 放在 .deps/openssl/<abi>。
+set(WILI_DEPS "$ENV{WILI_DEPS}")
+set(OSSL_DIR "${WILI_DEPS}/openssl/${CMAKE_ANDROID_ARCH_ABI}")
+if (EXISTS "${OSSL_DIR}/lib/libssl.a")
+    set(OPENSSL_ROOT_DIR      "${OSSL_DIR}"                 CACHE PATH     "" FORCE)
+    set(OPENSSL_INCLUDE_DIR   "${OSSL_DIR}/include"         CACHE PATH     "" FORCE)
+    set(OPENSSL_SSL_LIBRARY   "${OSSL_DIR}/lib/libssl.a"    CACHE FILEPATH "" FORCE)
+    set(OPENSSL_CRYPTO_LIBRARY "${OSSL_DIR}/lib/libcrypto.a" CACHE FILEPATH "" FORCE)
+    list(APPEND CMAKE_PREFIX_PATH "${OSSL_DIR}")
+    message(STATUS "OpenSSL: ${OSSL_DIR}")
+else()
+    message(FATAL_ERROR
+        "未找到 ${OSSL_DIR}/lib/libssl.a。cpr 需要 SSL 后端，"
+        "请先交叉编译 OpenSSL 并把 WILI_DEPS 指到 .deps")
+endif()
+
 add_subdirectory(${WILI_ROOT} wiliwili_root)
