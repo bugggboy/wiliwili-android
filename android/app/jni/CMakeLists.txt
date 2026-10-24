@@ -58,4 +58,20 @@ else()
         "请先交叉编译 OpenSSL 并把 WILI_DEPS 指到 .deps")
 endif()
 
+# mpv_core.hpp 在 __SDL2__ 下写的是 #include <SDL2/SDL.h>，
+# 这个路径是给「系统预装 SDL」用的；而本工程里 SDL 是 borealis 的子模块，
+# 头文件是平铺的 ${SDL}/include/SDL.h。
+# 造一个 shim 目录，使 SDL2/SDL.h 能解析到源码里的 SDL.h。
+set(SDL_INC "${WILI_ROOT}/library/borealis/library/lib/extern/SDL/include")
+if (NOT EXISTS "${SDL_INC}/SDL.h")
+    message(FATAL_ERROR "找不到 SDL 头文件：${SDL_INC}/SDL.h（子模块没拉全？）")
+endif()
+set(SDL_SHIM_DIR "${CMAKE_CURRENT_BINARY_DIR}/sdl2_shim")
+file(MAKE_DIRECTORY "${SDL_SHIM_DIR}")
+if (NOT EXISTS "${SDL_SHIM_DIR}/SDL2")
+    file(CREATE_LINK "${SDL_INC}" "${SDL_SHIM_DIR}/SDL2" SYMBOLIC)
+endif()
+include_directories("${SDL_SHIM_DIR}")
+message(STATUS "SDL2 头文件映射: ${SDL_SHIM_DIR}/SDL2 -> ${SDL_INC}")
+
 add_subdirectory(${WILI_ROOT} wiliwili_root)
