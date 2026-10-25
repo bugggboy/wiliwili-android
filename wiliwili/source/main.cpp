@@ -13,6 +13,7 @@
 
 #include "utils/config_helper.hpp"
 #include "utils/activity_helper.hpp"
+#include "utils/android_compat.hpp"
 #include "view/mpv_core.hpp"
 
 #ifdef IOS
@@ -20,6 +21,12 @@
 #endif
 
 int main(int argc, char* argv[]) {
+#if defined(__ANDROID__)
+    // 必须最早安装：后面 ProgramConfig / 网络 / mpv 初始化都可能崩，
+    // 装上之后闪退才有栈可查（logcat tag: WILIWILI-CRASH）
+    wiliwili::installAndroidCrashHandler();
+#endif
+
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "-d") == 0) {
             brls::Logger::setLogLevel(brls::LogLevel::LOG_DEBUG);

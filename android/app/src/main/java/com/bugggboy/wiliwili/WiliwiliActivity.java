@@ -29,6 +29,8 @@ public class WiliwiliActivity extends SDLActivity {
             // Os.setenv 在极老系统上可能不可用，退化为默认行为
         }
         installCaBundle();
+        setupCrashDir();
+        installJavaCrashHandler();
         super.onCreate(savedInstanceState);
 
         // borealis 通过该 Handler 接收亮度调整请求
@@ -58,6 +60,49 @@ public class WiliwiliActivity extends SDLActivity {
             android.system.Os.setenv("WILIWILI_CA_BUNDLE", target.getAbsolutePath(), true);
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 给原生层的崩溃处理器指定落盘目录。
+     * 优先用外部私有目录（Android/data/<pkg>/files，连电脑或用文件管理器都能直接取，
+     * 不需要任何权限），拿不到时退回内部私有目录。
+     */
+    private void setupCrashDir() {
+        try {
+            java.io.File dir = getExternalFilesDir(null);
+            if (dir == null) dir = getFilesDir();
+            if (!dir.exists()) dir.mkdirs();
+            android.system.Os.setenv("WILIWILI_CRASH_DIR", dir.getAbsolutePath(), true);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 原生崩溃有 crash-native.txt，Java 侧的异常（SDL 初始化、权限、OOM 等）另存一份，
+     * 两边都覆盖到，用户只需把这两个文件发回来就能定位。
+     */
+    private void installJavaCrashHandler() {
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable e) {
+                try {
+                    java.io.File dir = getExternalFilesDir(null);
+                    if (dir == null) dir = getFilesDir();
+                    if (!dir.exists()) dir.mkdirs();
+                    java.io.PrintWriter writer = new java.io.PrintWriter(
+                            new java.io.FileWriter(new java.io.File(dir, "crash-java.txt"), true));
+                    writer.println("===== JAVA CRASH thread=" + thread.getName() + " =====");
+                    e.printStackTrace(writer);
+                    writer.println("===== END =====");
+                    writer.flush();
+                    writer.close();
+                } catch (Throwable ignored) {
+                }
+                android.util.Log.e("WILIWILI-CRASH", "java crash", e);
+                if (previous != null) previous.uncaughtException(thread, e);
+            }
+        });
     }
 
     @Override

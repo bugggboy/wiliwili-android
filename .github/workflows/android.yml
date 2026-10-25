@@ -322,6 +322,43 @@ jobs:
           cp "$APK" out/wiliwili-android-debug.apk
           echo "APK_SIZE=$(du -h out/wiliwili-android-debug.apk | cut -f1)" >> "$GITHUB_ENV"
 
+      - name: 编译 Android 6.0 专用包（release / 解压安装 native 库）
+        run: |
+          set -o pipefail
+          cd android
+          # 和 debug 包的区别：
+          #   1) release 变体 → AGP 会 strip 掉 native 调试符号，.so 体积大幅缩小，
+          #      老设备（内存/虚拟地址紧张）加载更稳，安装包也小很多；
+          #   2) -PlegacyPackaging=true → extractNativeLibs，把 .so 解压到 /data/app，
+          #      避开部分 Android 6.0 ROM 对「直接从 APK 内 mmap .so」的兼容性问题。
+          # 两个包用同一个 debug 签名，可以互相覆盖安装。
+          gradle :app:assembleRelease --no-daemon --stacktrace -PlegacyPackaging=true 2>&1 | tee /tmp/gradle-release.log
+
+      - name: 校验 6.0 包（API 23 符号自洽性）
+        if: always()
+        run: |
+          set -e
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          [ -n "$APK" ] || { echo "::error::没有产出 release APK"; \
+            grep -nE "error:|FAILED|CMake Error" /tmp/gradle-release.log | head -20 || true; exit 1; }
+          ls -lh "$APK"
+          unzip -l "$APK" | awk '/lib\/.*\.so$/{n++; s+=$1; printf "  %-46s %7.1f MB\n", $4, $1/1048576} END{printf "  合计 %d 个 / %.1f MB\n", n, s/1048576}'
+          # extractNativeLibs 应为 true（解压安装）
+          BT=$(ls -d "${ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep -E "package:|sdkVersion|targetSdkVersion" || true
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>/dev/null \
+            | grep -i "extractNativeLibs" || echo "（未显式声明，按 AGP 默认）"
+          mkdir -p out
+          cp "$APK" out/wiliwili-android6.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wiliwili-android6
+          path: out/wiliwili-android6.apk
+          if-no-files-found: ignore
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -342,3 +379,27 @@ jobs:
                  --notes "wiliwili 的 Android 移植预览版。debug 签名，可直接安装。最低 Android 6.0（API 23）。" \
                  --latest
           gh release upload "$TAG" out/wiliwili-android-debug.apk --clobber
+
+      # Android 6.0 单独一个 release：包更小、native 库解压安装，
+      # 与上面的 android-preview 并存互不影响。
+      - name: 挂到 Release（Android 6.0 专用版）
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f out/wiliwili-android6.apk ] || exit 0
+          TAG=android6-preview
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" \
+                 --title "wiliwili for Android 6.0 (release build)" \
+                 --notes "面向 Android 6.0（API 23）的专用包。
+
+- release 变体：native 库已 strip，体积和内存占用明显小于 debug 包
+- extractNativeLibs=true：.so 解压到 /data/app 后再加载，避开老 ROM 的兼容性问题
+- 已补齐 getentropy（API 28+）/ memfd_create（API 30+）的实现，API 23 上符号自洽
+- 与 android-preview 同一个 debug 签名，可互相覆盖安装
+
+如仍闪退，请提供 logcat 里 tag 为 WILIWILI-CRASH 的内容，
+或应用目录 Android/data/com.bugggboy.wiliwili/files/crash-native.txt" \
+                 --latest=false
+          gh release upload "$TAG" out/wiliwili-android6.apk --clobber

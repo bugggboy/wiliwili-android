@@ -47,7 +47,20 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            // 预览包统一用 debug 签名，保证下载下来就能装（和 debug 包同一个 key，
+            // 因此两个版本可以互相覆盖安装）
+            signingConfig signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            // Android 6.0 专用包用「解压安装」：6.0 的加载器对 APK 内未压缩 .so 的
+            // 支持在部分 ROM 上有差异，解压到 /data/app 后再加载最稳，也方便排查。
+            // 默认（false）保持原来的 in-APK 加载行为，不影响已有版本。
+            useLegacyPackaging = project.hasProperty('legacyPackaging') &&
+                    project.property('legacyPackaging').toBoolean()
         }
     }
 
