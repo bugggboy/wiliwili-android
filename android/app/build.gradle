@@ -20,6 +20,17 @@ android {
 
         ndkVersion "22.1.7171670"
 
+        // ABI 过滤必须放在 defaultConfig.ndk 里：放在 externalNativeBuild.cmake 里
+        // 只过滤 CMake 产物，libs/ 下预编译的 libmpv、libav* 仍会被打进包（实测两个 ABI 都在）。
+        // 传 -Pabi=armeabi-v7a 只出单 ABI 包；电视/老设备多是纯 32 位，体积能砍一半。
+        ndk {
+            if (project.hasProperty("abi")) {
+                abiFilters(*project.property("abi").split(','))
+            } else {
+                abiFilters "armeabi-v7a", "arm64-v8a"
+            }
+        }
+
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_PLATFORM=android-23",
@@ -38,7 +49,6 @@ android {
                         arguments += "-DFETCHCONTENT_SOURCE_DIR_${k.toUpperCase()}=${v}"
                     }
                 }
-                abiFilters 'armeabi-v7a', 'arm64-v8a'
                 version = '3.22.1'
             }
         }

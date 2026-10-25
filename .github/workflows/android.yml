@@ -332,30 +332,43 @@ jobs:
           #   2) -PlegacyPackaging=true → extractNativeLibs，把 .so 解压到 /data/app，
           #      避开部分 Android 6.0 ROM 对「直接从 APK 内 mmap .so」的兼容性问题。
           # 两个包用同一个 debug 签名，可以互相覆盖安装。
+          mkdir -p ../out
           gradle :app:assembleRelease --no-daemon --stacktrace -PlegacyPackaging=true 2>&1 | tee /tmp/gradle-release.log
+          cp app/build/outputs/apk/release/app-release.apk ../out/wiliwili-android6.apk
+
+          # 再出一个纯 32 位包：电视和老盒子基本都只有 armeabi-v7a，
+          # 单 ABI 能把体积砍到一半，无线 adb 传输快很多。
+          gradle :app:assembleRelease --no-daemon --stacktrace -PlegacyPackaging=true -Pabi=armeabi-v7a 2>&1 | tee /tmp/gradle-release-armv7.log
+          cp app/build/outputs/apk/release/app-release.apk ../out/wiliwili-android6-tv-armv7.apk
 
       - name: 校验 6.0 包（API 23 符号自洽性）
         if: always()
         run: |
           set -e
-          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          [ -n "$APK" ] || { echo "::error::没有产出 release APK"; \
+          APK=out/wiliwili-android6.apk
+          [ -f "$APK" ] || { echo "::error::没有产出 release APK"; \
             grep -nE "error:|FAILED|CMake Error" /tmp/gradle-release.log | head -20 || true; exit 1; }
-          ls -lh "$APK"
-          unzip -l "$APK" | awk '/lib\/.*\.so$/{n++; s+=$1; printf "  %-46s %7.1f MB\n", $4, $1/1048576} END{printf "  合计 %d 个 / %.1f MB\n", n, s/1048576}'
-          # extractNativeLibs 应为 true（解压安装）
+          for f in out/wiliwili-android6.apk out/wiliwili-android6-tv-armv7.apk; do
+            [ -f "$f" ] || continue
+            echo "===== $f ($(stat -c%s "$f") B) ====="
+            unzip -l "$f" | awk '/lib\/.*\.so$/{n++; s+=$1; printf "  %-46s %7.1f MB\n", $4, $1/1048576} END{printf "  合计 %d 个 / %.1f MB\n", n, s/1048576}'
+            unzip -l "$f" | awk '/lib\/[^\/]+\//{split($4,a,"/"); print a[2]}' | sort -u | sed 's/^/  ABI: /'
+          done
           BT=$(ls -d "${ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
-          "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep -E "package:|sdkVersion|targetSdkVersion" || true
-          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>/dev/null \
-            | grep -i "extractNativeLibs" || echo "（未显式声明，按 AGP 默认）"
-          mkdir -p out
-          cp "$APK" out/wiliwili-android6.apk
+          "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep -E "package:|sdkVersion|targetSdkVersion|leanback|native-code|touchscreen" || true
+          # 电视上必须能拿到 leanback 入口，且 touchscreen 不能是 required
+          "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep -q "leanback-launchable-activity" \
+            || { echo "::error::缺少 LEANBACK_LAUNCHER，电视桌面会看不到应用"; exit 1; }
+          "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep "uses-feature: name='android.hardware.touchscreen'" \
+            && { echo "::error::touchscreen 仍被声明为必需，电视会判定不兼容"; exit 1; } || echo "  ✅ touchscreen 为可选"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: wiliwili-android6
-          path: out/wiliwili-android6.apk
+          path: |
+            out/wiliwili-android6.apk
+            out/wiliwili-android6-tv-armv7.apk
           if-no-files-found: ignore
           retention-days: 14
 
@@ -398,3 +411,6 @@ jobs:
                  --notes "$NOTES" \
                  --latest=false
           gh release upload "$TAG" out/wiliwili-android6.apk --clobber
+          # 纯 32 位包（电视/老盒子）单独附一份
+          [ -f out/wiliwili-android6-tv-armv7.apk ] \
+            && gh release upload "$TAG" out/wiliwili-android6-tv-armv7.apk --clobber || true

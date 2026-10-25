@@ -4,8 +4,18 @@
     <!-- OpenGL ES 2.0 -->
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
 
-    <!-- 触摸屏（wiliwili 在 Android 上以触摸为主要输入） -->
-    <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+    <!--
+      触摸屏必须声明为「可选」。
+      电视没有 android.hardware.touchscreen 这个 feature，写成 required="true" 会被
+      部分电视（如小米电视的 PackageInstaller）判定为设备不兼容而拒绝安装
+      （表现为 INSTALL_FAILED_USER_RESTRICTED），装了也可能不出图标。
+      输入实际由 SDL 统一处理：触摸 / 遥控器方向键 / 手柄都走同一套事件。
+    -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Android TV：声明为可选，手机/平板上不影响任何行为 -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.software.leanback_only" android:required="false" />
 
     <!-- 蓝牙手柄 / USB 手柄可选 -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
@@ -40,6 +50,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Android TV 桌面入口：不声明这个，电视桌面上找不到应用（手机端无影响） -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
     </application>
