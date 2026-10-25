@@ -389,17 +389,12 @@ jobs:
         run: |
           [ -f out/wiliwili-android6.apk ] || exit 0
           TAG=android6-preview
+          # 说明写成单行变量：多行文本一旦顶格会截断 YAML 的 block scalar，
+          # 整个 workflow 会直接解析失败（run 变 failure 且不产生任何 job）。
+          NOTES="面向 Android 6.0（API 23）的专用包。release 变体（native 库已 strip，包体积约为 debug 版的 40%）；extractNativeLibs=true，.so 解压到 /data/app 后再加载；已补齐 getentropy(API 28+)/memfd_create(API 30+) 的实现，API 23 上符号自洽；与 android-preview 使用同一个 debug 签名，可互相覆盖安装。若仍闪退，请提供 logcat 中 tag 为 WILIWILI-CRASH 的内容，或应用目录 Android/data/com.bugggboy.wiliwili/files/crash-native.txt。"
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" \
                  --title "wiliwili for Android 6.0 (release build)" \
-                 --notes "面向 Android 6.0（API 23）的专用包。
-
-- release 变体：native 库已 strip，体积和内存占用明显小于 debug 包
-- extractNativeLibs=true：.so 解压到 /data/app 后再加载，避开老 ROM 的兼容性问题
-- 已补齐 getentropy（API 28+）/ memfd_create（API 30+）的实现，API 23 上符号自洽
-- 与 android-preview 同一个 debug 签名，可互相覆盖安装
-
-如仍闪退，请提供 logcat 里 tag 为 WILIWILI-CRASH 的内容，
-或应用目录 Android/data/com.bugggboy.wiliwili/files/crash-native.txt" \
+                 --notes "$NOTES" \
                  --latest=false
           gh release upload "$TAG" out/wiliwili-android6.apk --clobber
