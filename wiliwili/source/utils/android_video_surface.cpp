@@ -72,29 +72,6 @@ extern "C" void wili_updateVideoLayout(int x, int y, int width, int height) {
     if (attached) g_jvm->DetachCurrentThread();
 }
 
-// 由 sdl_video.cpp 的 clear() 调用：控制视频 SurfaceView 可见性。
-// 非播放页必须隐藏，否则首页等界面会残留视频画面。
-extern "C" void wili_setVideoSurfaceVisible(bool visible) {
-    if (g_jvm == nullptr || g_activityClass == nullptr) return;
-    static jmethodID setVisible = nullptr;
-    JNIEnv* env                 = nullptr;
-    bool attached               = false;
-    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
-        attached = true;
-    }
-    if (env != nullptr) {
-        if (setVisible == nullptr) {
-            setVisible = env->GetStaticMethodID(g_activityClass, "setVideoSurfaceVisible", "(Z)V");
-        }
-        if (setVisible != nullptr) {
-            env->CallStaticVoidMethod(g_activityClass, setVisible, visible ? JNI_TRUE : JNI_FALSE);
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-    if (attached) g_jvm->DetachCurrentThread();
-}
-
 extern "C" {
 
 // 当前视频 Surface 的全局引用（mpv 的 wid 需要 jobject，不是 ANativeWindow）

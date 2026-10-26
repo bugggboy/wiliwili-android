@@ -161,27 +161,6 @@ public class WiliwiliActivity extends SDLActivity {
         });
     }
 
-    /**
-     * 控制视频 SurfaceView 的可见性。只有在播放页（有视频窗口）时才显示，
-     * 其他页面隐藏，避免首页等界面残留视频画面。
-     */
-    public static void setVideoSurfaceVisible(boolean visible) {
-        WiliwiliActivity a = (WiliwiliActivity) mSingleton;
-        if (a == null || a.mVideoSurfaceView == null) return;
-        final SurfaceView sv = a.mVideoSurfaceView;
-        final int vis = visible ? View.VISIBLE : View.INVISIBLE;
-        if (sv.getVisibility() == vis) return;
-        sv.post(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    sv.setVisibility(vis);
-                } catch (Throwable ignored) {
-                }
-            }
-        });
-    }
-
     // ---- 视频 Surface 的 native 接口（由 libwiliwili.so 实现） ----
     public static native void onNativeVideoSurface(Surface surface);
     public static native void onNativeVideoSurfaceDestroyed();
