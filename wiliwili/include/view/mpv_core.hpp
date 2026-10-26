@@ -122,6 +122,8 @@ extern mpvClientApiVersionFunc mpvClientApiVersion;
 #define mpvGetPropertyString mpv_get_property_string
 #define mpvFreeNodeContents mpv_free_node_contents
 #define mpvSetOption mpv_set_option
+#define mpvSetProperty mpv_set_property
+#define mpvRequestLogMessages mpv_request_log_messages
 #define mpvFree mpv_free
 #define mpvRenderContextCreate mpv_render_context_create
 #define mpvRenderContextSetUpdateCallback mpv_render_context_set_update_callback
@@ -130,6 +132,10 @@ extern mpvClientApiVersionFunc mpvClientApiVersion;
 #define mpvRenderContextUpdate mpv_render_context_update
 #define mpvRenderContextFree mpv_render_context_free
 #define mpvClientApiVersion mpv_client_api_version
+#endif
+
+#if defined(__ANDROID__)
+struct ANativeWindow;  // forward declare，避免引入 android/native_window.h
 #endif
 
 class MPVCore : public brls::Singleton<MPVCore> {
@@ -259,6 +265,16 @@ public:
      */
     void setHwdecCopyMode(bool value);
 
+#if defined(__ANDROID__)
+    /**
+     * 设置 mpv 的零拷贝渲染目标。传的是 Java Surface 的**全局引用（GlobalRef）**，
+     * 不是 ANativeWindow——mpv-android 的 wid 在 Android 上期望 jobject，
+     * 内部会自己调 ANativeWindow_fromSurface 转换。传 ANativeWindow 会因为
+     * "use of invalid jobject" 直接 abort。传 nullptr 表示 Surface 已销毁。
+     */
+    void setNativeWindow(void* surfaceGlobalRef);
+#endif
+
     /**
      * 禁用系统锁屏
      */
@@ -370,6 +386,11 @@ public:
     inline static std::string PLAYER_HWDEC_METHOD = "vita-copy";
 #elif defined(PS4)
     inline static std::string PLAYER_HWDEC_METHOD = "no";
+#elif defined(__ANDROID__)
+    // Android：mediacodec-copy 是唯一稳定可用的硬解（零拷贝 mediacodec 在这台
+    // Mali-450 的 SDL GLES2 上下文中 interop 初始化失败，会退回软解更卡）。
+    // copy 模式每帧硬解后拷回内存再上传 GL，虽然比零拷贝慢，但远好于软解。
+    inline static std::string PLAYER_HWDEC_METHOD = "mediacodec-copy";
 #else
     inline static std::string PLAYER_HWDEC_METHOD = "auto-safe";
 #endif
@@ -402,6 +423,10 @@ private:
     mpv_handle *mpv                 = nullptr;
     mpv_render_context *mpv_context = nullptr;
     brls::Rect rect                 = {0, 0, 1920, 1080};
+#if defined(__ANDROID__)
+    void* nativeWindow              = nullptr;   // Java Surface 的 GlobalRef（vo=mediacodec_embed 用）
+    bool useMediacodecEmbed         = true;      // Android 上默认走零拷贝直渲染
+#endif
 #ifdef MPV_SW_RENDER
     const int PIXCEL_SIZE          = 4;
     int nvg_image                  = 0;

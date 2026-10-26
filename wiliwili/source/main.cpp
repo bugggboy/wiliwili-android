@@ -25,6 +25,9 @@ int main(int argc, char* argv[]) {
     // 必须最早安装：后面 ProgramConfig / 网络 / mpv 初始化都可能崩，
     // 装上之后闪退才有栈可查（logcat tag: WILIWILI-CRASH）
     wiliwili::installAndroidCrashHandler();
+    // 日志降级：默认 INFO 级别在 Android 上要往 logcat 写大量日志，老设备上 IO 开销
+    // 不可忽略（尤其配合 mpv 事件），降到 WARNING 只保留警告/错误。
+    brls::Logger::setLogLevel(brls::LogLevel::LOG_WARNING);
 #endif
 
     for (int i = 1; i < argc; i++) {

@@ -185,6 +185,8 @@ endif ()
 
 # source cpp
 file(GLOB_RECURSE MAIN_SRC wiliwili/source/*.cpp)
+# Android 视频 Surface 桥接（GLOB 不带 CONFIGURE_DEPENDS，新增文件需显式列出）
+list(APPEND MAIN_SRC wiliwili/source/utils/android_video_surface.cpp)
 if (WIN32)
     configure_file("${CMAKE_SOURCE_DIR}/wiliwili/app_win32.rc.in" "${CMAKE_BINARY_DIR}/app_win32.rc")
     list(APPEND MAIN_SRC ${CMAKE_BINARY_DIR}/app_win32.rc)
@@ -210,6 +212,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 set_source_files_properties(
         wiliwili/source/utils/config_helper.cpp
         wiliwili/source/utils/android_compat.cpp
+        wiliwili/source/utils/android_video_surface.cpp
         wiliwili/source/view/mpv_core.cpp
         wiliwili/source/activity/setting_activity.cpp
         wiliwili/source/activity/dlna_activity.cpp
@@ -326,5 +329,9 @@ endif ()
 
 target_include_directories(${PROJECT_NAME} PRIVATE wiliwili/include wiliwili/include/api ${APP_PLATFORM_INCLUDE})
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections -Wunused-variable ${APP_PLATFORM_OPTION})
+if (ANDROID)
+    # android_video_surface.cpp 用 ANativeWindow_fromSurface（libandroid.so）
+    list(APPEND APP_PLATFORM_LIB android)
+endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE wiliwiliLibExtra borealis lunasvg pystring pdr mongoose z ${APP_PLATFORM_LIB})
 target_link_options(${PROJECT_NAME} PRIVATE ${APP_PLATFORM_LINK_OPTION})

@@ -5,9 +5,17 @@
 #include <cstdlib>
 #include <clocale>
 #include <cmath>
+#include <cstring>
 #include <pystring.h>
 #include <borealis/core/thread.hpp>
 #include <borealis/core/application.hpp>
+
+#if defined(__ANDROID__)
+#include <dlfcn.h>
+// 由 android_video_surface.cpp / sdl_video.cpp 提供
+extern "C" void wili_updateVideoLayout(int x, int y, int width, int height);
+extern "C" void wili_markVideoDraw();
+#endif
 
 #include "utils/config_helper.hpp"
 #include "utils/number_helper.hpp"
@@ -176,7 +184,29 @@ static inline void check_error(int status) {
 static void *get_proc_address(void *unused, const char *name) {
 #ifdef __SDL2__
     SDL_GL_GetCurrentContext();
-    return (void *)SDL_GL_GetProcAddress(name);
+    void *proc = (void *)SDL_GL_GetProcAddress(name);
+    if (proc) return proc;
+#ifdef __ANDROID__
+    // SDL_GL_GetProcAddress 只返回 GL 函数，拿不到 EGL 函数（eglCreateImageKHR、
+    // eglGetCurrentDisplay 等）。而 mpv 的 hwdec=mediacodec（零拷贝硬解）需要这些
+    // EGL 函数来做 hardware surface → GL 纹理的 interop。这里对 egl* 开头的函数
+    // 从 libEGL.so 直接 dlsym，让零拷贝硬解能初始化，否则 mpv 只能退回
+    // mediacodec-copy（每帧拷回内存，armv7 电视上 4K 卡成幻灯片）。
+    if (strncmp(name, "egl", 3) == 0) {
+        static void *egl_handle = dlopen("libEGL.so", RTLD_NOW);
+        if (egl_handle) {
+            void *sym = dlsym(egl_handle, name);
+            if (sym) return sym;
+        }
+        // 部分厂商把 EGL 符号放在 libGLESv2.so 里
+        static void *gles_handle = dlopen("libGLESv2.so", RTLD_NOW);
+        if (gles_handle) {
+            void *sym = dlsym(gles_handle, name);
+            if (sym) return sym;
+        }
+    }
+#endif
+    return nullptr;
 #else
     glfwGetCurrentContext();
     return (void *)glfwGetProcAddress(name);
@@ -204,7 +234,21 @@ static inline float aspectConverter(const std::string &value) {
 
 void MPVCore::on_update(void *self) {
     brls::sync([]() {
+#if defined(__ANDROID__)
+        // 零拷贝直渲染（vo=mediacodec_embed）没有 render context，视频由 mpv 自己
+        // 渲染到 Surface，这里什么都不用做（on_update 只在 libmpv render API 下才会
+        // 被注册，走到这里说明是 libmpv 路径，但 mpv_context 仍可能为 null 需保护）。
+        if (MPVCore::instance().useMediacodecEmbed) return;
+        if (MPVCore::instance().getContext() == nullptr) return;
+#endif
         uint64_t flags = mpvRenderContextUpdate(MPVCore::instance().getContext());
+        // 降级模式（framebuffer GL 函数不可用，media_framebuffer == 0）下，渲染直接
+        // 到默认 framebuffer，统一由 MPVCore::draw 在每帧绘制时 render，这里不能再
+        // render，否则同一帧被 render 两次，帧节奏混乱、画面卡顿。
+        if (MPVCore::instance().media_framebuffer == 0) {
+            (void)flags;
+            return;
+        }
 #if defined(MPV_NO_FB) || defined(BOREALIS_USE_DEKO3D) || defined(BOREALIS_USE_D3D11)
         // 直接绘制到屏幕上，需要屏幕每刷新一次绘制一次，在 MPVCore 的绘制函数内部处理
         (void)flags;
@@ -282,7 +326,18 @@ MPVCore::MPVCore() {
         initMpvProc(hMpv, GetProcAddress);
     }
 #endif
+#if defined(__ANDROID__)
+    // 零拷贝直渲染（vo=mediacodec_embed）需要 mpv 初始化时 wid（ANativeWindow）就已就绪，
+    // 否则 vo 创建失败、之后补设 wid 也救不回来（表现为有声音没画面）。
+    // Java 的 Surface 是异步创建的，所以这里延迟到 Surface 就绪后由 setNativeWindow 触发 init()。
+    if (!useMediacodecEmbed) {
+        this->init();
+    } else {
+        brls::Logger::info("MPVCore: defer init until video surface ready (zero-copy)");
+    }
+#else
     this->init();
+#endif
     // Destroy mpv when application exit
     brls::Application::getExitDoneEvent()->subscribe([this]() {
         this->clean();
@@ -324,7 +379,18 @@ void MPVCore::init() {
     mpvSetOptionString(mpv, "keep-open", "yes");
     mpvSetOptionString(mpv, "hr-seek", "yes");
     mpvSetOptionString(mpv, "reset-on-next-file", "speed,pause");
-    mpvSetOptionString(mpv, "vo", "libmpv");
+#if defined(__ANDROID__)
+    // Android 零拷贝直渲染：用独立的 mediacodec_embed vo，视频直接渲染到
+    // Surface（通过 wid 传 ANativeWindow），不再走 libmpv render API 那套
+    // 「硬解→拷回内存→上传 GL」。这样 armv7 老电视（Mali-450）也能流畅播 4K。
+    if (useMediacodecEmbed) {
+        mpvSetOptionString(mpv, "vo", "mediacodec_embed");
+        brls::Logger::info("MPV vo: mediacodec_embed (zero-copy)");
+    } else
+#endif
+    {
+        mpvSetOptionString(mpv, "vo", "libmpv");
+    }
     mpvSetOptionString(mpv, "pulse-latency-hacks", "no");
 
     mpvSetOption(mpv, "brightness", MPV_FORMAT_DOUBLE, &MPVCore::VIDEO_BRIGHTNESS);
@@ -362,12 +428,28 @@ void MPVCore::init() {
     }
 
     // hardware decoding
+#if defined(__ANDROID__)
+    if (useMediacodecEmbed) {
+        // 零拷贝直渲染强制 mediacodec 硬解：mediacodec_embed vo 只接受硬解帧，
+        // 软解的 yuv420p 需要 hwupload 上传，而这台设备 hardware format not supported，
+        // 会导致 "Could not initialize video chain" → 只有声音没画面。
+        // 注意：init() 可能早于配置加载，不能用 HARDWARE_DEC（那时还是默认 false）。
+        mpvSetOptionString(mpv, "hwdec", "mediacodec");
+        brls::Logger::info("MPV hardware decode: mediacodec (zero-copy, forced)");
+    } else if (HARDWARE_DEC) {
+        mpvSetOptionString(mpv, "hwdec", PLAYER_HWDEC_METHOD.c_str());
+        brls::Logger::info("MPV hardware decode: {}", PLAYER_HWDEC_METHOD);
+    } else {
+        mpvSetOptionString(mpv, "hwdec", "no");
+    }
+#else
     if (HARDWARE_DEC) {
         mpvSetOptionString(mpv, "hwdec", PLAYER_HWDEC_METHOD.c_str());
         brls::Logger::info("MPV hardware decode: {}", PLAYER_HWDEC_METHOD);
     } else {
         mpvSetOptionString(mpv, "hwdec", "no");
     }
+#endif
 
     // Making the loading process faster
 #if defined(__SWITCH__)
@@ -397,11 +479,28 @@ void MPVCore::init() {
             mpvSetOptionString(mpv, "msg-level", "all=v");
         }
     }
+#if defined(__ANDROID__)
+    // 只保留错误级日志。之前诊断用的 all=v 会让 mpv 每帧刷大量日志到 logcat，
+    // 在 armv7 老设备上严重拖慢操作响应（日志格式化 + IO 都在解码线程上）。
+    mpvSetOptionString(mpv, "msg-level", "error");
+    // 零拷贝直渲染：如果 Surface 在 mpv 创建之前就到了，在这里（mpvInitialize 之前）
+    // 用 mpv_set_option 把 wid 设进去，这样 vo=mediacodec_embed 创建时就有渲染目标。
+    if (useMediacodecEmbed && this->nativeWindow) {
+        int64_t wid = reinterpret_cast<int64_t>(this->nativeWindow);
+        mpvSetOption(mpv, "wid", MPV_FORMAT_INT64, &wid);
+        brls::Logger::info("mpv wid set via option (pre-init): {}", (void*)this->nativeWindow);
+    }
+#endif
 
     if (mpvInitialize(mpv) < 0) {
         mpvTerminateDestroy(mpv);
         brls::fatal("Could not initialize mpv context");
     }
+
+#if defined(__ANDROID__)
+    // 只请求错误级日志事件，避免每帧日志转发拖慢老设备
+    mpvRequestLogMessages(mpv, "error");
+#endif
 
     // set observe properties
     check_error(mpvObserveProperty(mpv, 1, "core-idle", MPV_FORMAT_FLAG));
@@ -499,9 +598,16 @@ void MPVCore::init() {
                               {MPV_RENDER_PARAM_INVALID, nullptr}};
 #endif
 
-    if (mpvRenderContextCreate(&mpv_context, mpv, params) < 0) {
-        mpvTerminateDestroy(mpv);
-        brls::fatal("failed to initialize mpv GL context");
+#if defined(__ANDROID__)
+    // 零拷贝直渲染（vo=mediacodec_embed）不需要 render context，视频由 mpv 直接
+    // 渲染到 Surface。只有走 libmpv render API 时才创建 render context。
+    if (!useMediacodecEmbed)
+#endif
+    {
+        if (mpvRenderContextCreate(&mpv_context, mpv, params) < 0) {
+            mpvTerminateDestroy(mpv);
+            brls::fatal("failed to initialize mpv GL context");
+        }
     }
 #ifdef BOREALIS_USE_D3D11
     wiliwili::initCrashDump();
@@ -514,7 +620,10 @@ void MPVCore::init() {
     // set event callback
     mpvSetWakeupCallback(mpv, on_wakeup, this);
     // set render callback
-    mpvRenderContextSetUpdateCallback(mpv_context, on_update, this);
+#if defined(__ANDROID__)
+    if (!useMediacodecEmbed)
+#endif
+        mpvRenderContextSetUpdateCallback(mpv_context, on_update, this);
 
     focusSubscription = brls::Application::getWindowFocusChangedEvent()->subscribe([this](bool focus) {
         static bool playing = false;
@@ -539,7 +648,12 @@ void MPVCore::init() {
 
     brls::Application::getExitEvent()->subscribe([]() { disableDimming(false); });
 
-    this->initializeVideo();
+#if defined(__ANDROID__)
+    // 零拷贝直渲染（vo=mediacodec_embed）不需要 GL framebuffer/texture/shader，
+    // 视频直接渲染到 Surface。只有 libmpv render API 才需要 initializeVideo。
+    if (!useMediacodecEmbed)
+#endif
+        this->initializeVideo();
 }
 
 #ifdef MPV_BUNDLE_DLL
@@ -549,6 +663,8 @@ MPVCore::~MPVCore() = default;
 #endif
 
 void MPVCore::clean() {
+    // 零拷贝模式下 mpv 延迟到 Surface 就绪才 init，退出时可能还没创建
+    if (this->mpv == nullptr) return;
     check_error(mpvCommandString(this->mpv, "quit"));
 
     brls::Application::getWindowFocusChangedEvent()->unsubscribe(focusSubscription);
@@ -615,6 +731,19 @@ void MPVCore::initializeVideo() {
     mpv_fbo.fbo = default_framebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, default_framebuffer);
 #elif defined(MPV_USE_FB)
+    // 老设备（如 Android 6 / GLES2 驱动的 armv7 电视）上，glad 可能加载不到
+    // glBindFramebuffer（驱动只导出 GL_OES_framebuffer_object 的 glBindFramebufferOES）。
+    // 此时这些函数指针为 null，一旦调用就是 pc=0x0 的段错误。检测到这种情况就
+    // 降级：不创建独立 FBO，让 mpv 直接渲染到默认 framebuffer（mpv_fbo.fbo 保持 0）。
+    if (glad_glBindFramebuffer == nullptr || glad_glGenFramebuffers == nullptr) {
+        brls::Logger::warning("MPVCore: framebuffer GL functions unavailable (GLES2 driver?), "
+                              "falling back to default framebuffer rendering");
+        this->media_framebuffer = 0;
+        this->media_texture     = 0;
+        this->shader.prog       = 0;
+        return;
+    }
+
     if (this->media_texture != 0) return;
     brls::Logger::debug("initializeGL");
 
@@ -693,6 +822,23 @@ void MPVCore::setFrameSize(brls::Rect r) {
     rect = r;
     if (std::isnan(rect.getWidth()) || std::isnan(rect.getHeight())) return;
 
+#if defined(__ANDROID__)
+    // 零拷贝直渲染：视频 Surface 的 buffer 固定整屏（decoder 输出稳定），把播放窗口
+    // 的位置/尺寸同步给 Java，让视频 SurfaceView 只显示在播放窗口那一块。
+    if (useMediacodecEmbed) {
+        float scale = brls::Application::contentWidth > 0
+                          ? (float)brls::Application::windowWidth / (float)brls::Application::contentWidth
+                          : 1.0f;
+        if (scale <= 0.0f) scale = 1.0f;
+        int vx = (int)(rect.getMinX() * scale);
+        int vy = (int)(rect.getMinY() * scale);
+        int vw = (int)(rect.getWidth() * scale);
+        int vh = (int)(rect.getHeight() * scale);
+        if (vw > 0 && vh > 0) wili_updateVideoLayout(vx, vy, vw, vh);
+        return;
+    }
+#endif
+
 #ifdef MPV_SW_RENDER
 #ifdef BOREALIS_USE_D3D11
     // 使用 dx11 的拷贝交换，否则视频渲染异常
@@ -750,6 +896,23 @@ void MPVCore::setFrameSize(brls::Rect r) {
     command_async("set", "video-margin-ratio-top", rect.getMinY() / brls::Application::contentHeight);
     command_async("set", "video-margin-ratio-left", rect.getMinX() / brls::Application::contentWidth);
 #else
+    // 降级模式（framebuffer GL 函数不可用）：没有 FBO，改用 mpv 的
+    // video-margin-ratio-* 把视频内容缩放到 rect 指定区域（同 MPV_NO_FB 路径）。
+    if (this->media_framebuffer == 0) {
+        this->mpv_fbo.w = brls::Application::windowWidth;
+        this->mpv_fbo.h = brls::Application::windowHeight;
+        if (brls::Application::contentWidth < rect.getMaxX() ||
+            brls::Application::contentHeight < rect.getMaxY())
+            return;
+        command_async("set", "video-margin-ratio-right",
+                      (brls::Application::contentWidth - rect.getMaxX()) / brls::Application::contentWidth);
+        command_async("set", "video-margin-ratio-bottom",
+                      (brls::Application::contentHeight - rect.getMaxY()) / brls::Application::contentHeight);
+        command_async("set", "video-margin-ratio-top", rect.getMinY() / brls::Application::contentHeight);
+        command_async("set", "video-margin-ratio-left", rect.getMinX() / brls::Application::contentWidth);
+        return;
+    }
+
     if (this->media_texture == 0) return;
     int drawWidth  = rect.getWidth() * brls::Application::windowScale;
     int drawHeight = rect.getHeight() * brls::Application::windowScale;
@@ -786,9 +949,27 @@ void MPVCore::setFrameSize(brls::Rect r) {
 #endif
 }
 
-bool MPVCore::isValid() { return mpv_context != nullptr; }
+bool MPVCore::isValid() {
+#if defined(__ANDROID__)
+    // 零拷贝直渲染路径下没有 render context（mpv_context 为 null），用 mpv 句柄判断
+    if (useMediacodecEmbed) return mpv != nullptr;
+#endif
+    return mpv_context != nullptr;
+}
 
 void MPVCore::draw(brls::Rect area, float alpha) {
+#if defined(__ANDROID__)
+    // 零拷贝直渲染：视频由 mpv 的 mediacodec_embed vo 直接画到 Surface，这里不 render。
+    // 但需要把视频窗口位置同步给 Java 层（更新视频 SurfaceView 的布局），
+    // 弹幕/字幕/OSD 仍由 VideoView::draw 在 GL 层绘制。
+    if (useMediacodecEmbed) {
+        if (mpv == nullptr) return;
+        // 标记视频窗口在当前帧绘制了，供 SDL clear() 判断是否处于播放页
+        wili_markVideoDraw();
+        if (!(this->rect == area)) setFrameSize(area);
+        return;
+    }
+#endif
     if (mpv_context == nullptr) return;
     if (!(this->rect == area)) setFrameSize(area);
 
@@ -863,6 +1044,19 @@ void MPVCore::draw(brls::Rect area, float alpha) {
         }
     }
 #else
+    // 老设备降级路径：framebuffer GL 函数不可用时，让 mpv 直接渲染到默认 framebuffer
+    // （mpv_fbo.fbo 保持 0），配合 setFrameSize 里设置的 video-margin-ratio-* 把
+    // 视频内容缩放到播放窗口区域，不经过 FBO + shader 那套（否则调用空指针崩溃）。
+    if (this->media_framebuffer == 0) {
+        if (alpha >= 1) {
+            // 确保 viewport 覆盖整个默认 framebuffer（glViewport 是 GLES2 核心函数，可安全调用）
+            glViewport(0, 0, (GLsizei)brls::Application::windowWidth, (GLsizei)brls::Application::windowHeight);
+            mpvRenderContextRender(this->mpv_context, mpv_params);
+            mpvRenderContextReportSwap(this->mpv_context);
+        }
+        return;
+    }
+
     // OpenGL 将 FBO 绘制到屏幕上
     glUseProgram(shader.prog);
     glBindTexture(GL_TEXTURE_2D, this->media_texture);
@@ -1267,6 +1461,28 @@ void MPVCore::setHwdecCopyMode(bool value) {
         brls::Logger::info("MPV hardware decode: {}", hwdec);
     }
 }
+
+#if defined(__ANDROID__)
+void MPVCore::setNativeWindow(void* surfaceGlobalRef) {
+    brls::Logger::info("MPVCore::setNativeWindow: surfaceRef={} mpv={}", surfaceGlobalRef, (void*)this->mpv);
+    this->nativeWindow = surfaceGlobalRef;
+
+    if (!this->mpv) {
+        // 零拷贝模式下 mpv 被延迟初始化，Surface 就绪后才 init()，这样 mpvInitialize
+        // 时 wid 已经有值，vo=mediacodec_embed 能正确创建并绑定渲染目标。
+        if (surfaceGlobalRef && useMediacodecEmbed) {
+            brls::Logger::info("MPVCore: video surface ready, init mpv now");
+            this->init();
+        }
+        return;
+    }
+
+    int64_t wid = surfaceGlobalRef ? reinterpret_cast<int64_t>(surfaceGlobalRef) : 0;
+    // mpv 已初始化，必须用 set_property（mpv_set_option 只在 initialize 之前有效）。
+    mpvSetProperty(this->mpv, "wid", MPV_FORMAT_INT64, &wid);
+    brls::Logger::info("mpv wid set via property: {}", surfaceGlobalRef);
+}
+#endif
 
 void MPVCore::setBrightness(int value) {
     if (value < -100) value = -100;
